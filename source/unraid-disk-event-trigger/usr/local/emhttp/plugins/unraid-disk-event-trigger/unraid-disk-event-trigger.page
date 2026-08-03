@@ -1,6 +1,7 @@
 Menu="Utilities"
 Title="Disk Event Trigger"
 Icon="icon.png"
+Tag="icon.png"
 ---
 <?php
 require_once '/usr/local/emhttp/plugins/unraid-disk-event-trigger/include/lib.php';
