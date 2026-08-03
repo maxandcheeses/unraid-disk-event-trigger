@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02.8">
+<!ENTITY version   "2026.08.02.9">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "6456499eda0b258cd46ed69e0e1294d1">
+<!ENTITY srcMD5     "14abac45127bce8f2076e8fb93ff696a">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.9
+- Add: optional per-rule "turn on/off delay" (seconds). When set, a threshold crossing is only sent once the condition has held continuously for that long; if it reverts before then, the pending change is cancelled. Forced-ON during a parity check/rebuild still fires immediately, bypassing the delay.
+
 ###2026.08.02.8
 - Add: the YAML backup view is now a writable editor - edit and click "Validate &amp; Apply YAML" to save. Both a YAML syntax parser and structural validation run server-side before anything is written; invalid input is rejected with a specific error and never touches the saved config.
 - Change: "View as YAML" is now a toggle (View/Hide), and the download filename is unraid-disk-event-trigger.yaml.
