@@ -5,12 +5,18 @@
 <!ENTITY version   "2026.08.02.4">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "bfd0b7a870301c6b6f56af25561823b4">
+<!ENTITY srcMD5     "86a19e263862a64fbd349a3ec8118e13">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.4
+- Fix: a manual Test ON/OFF didn't update the tracked hysteresis state, so a Test OFF after an automatic ON left the poll cycle believing the relay was still on and it never re-fired.
+- Add: per-rule "force_resend" flag to re-send the ON/OFF command every poll cycle even when unchanged, as protection against the device drifting out of sync.
+- Add: "Check Device State" button (Tasmota HTTP status query, or an MQTT state topic) that reads the device's actual state without changing anything and self-heals the tracked relay state to match.
+- Add: MQTT state-topic JSON parsing is an explicit opt-in checkbox (default off) rather than automatic sniffing.
+
 ###2026.08.02.3
 - Add: "Clear Log" button (with confirmation prompt) next to Refresh Log.
 
