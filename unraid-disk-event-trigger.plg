@@ -2,15 +2,19 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.7">
+<!ENTITY version   "2026.08.03.8">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "04d56c9c4712d4981cf8525c59f09802">
+<!ENTITY srcMD5     "0301f7374f0d040f447da77eecaa4fda">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.8
+- Add: rules can now trigger on used disk space percentage instead of temperature (per-rule "Trigger on" choice), reusing the same aggregate/hysteresis/delay logic. Usage is read from Unraid's own cached filesystem stats, so it's safe to check even for spun-down disks.
+- Change: the disk table now shows a Used % column alongside temperature.
+
 ###2026.08.03.7
 - Add: rules can now target a generic HTTP/HTTPS webhook (arbitrary method/URL/body/headers per ON/OFF, optional basic auth and a self-signed-certificate bypass) in addition to Tasmota HTTP and MQTT, for devices/automations Tasmota's fixed API doesn't cover.
 - Add: webhook rules get a "Check Device State" button that shows the raw HTTP response for debugging, since there's no generic way to infer on/off from an arbitrary endpoint's reply.
