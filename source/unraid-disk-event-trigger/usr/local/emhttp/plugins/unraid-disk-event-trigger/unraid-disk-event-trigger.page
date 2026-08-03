@@ -767,7 +767,7 @@ function httUpdateRuleDirtyIndicator(box) {
 function httSaveRule(i) {
     httCollectRules();
     const rule = httRules[i];
-    const box = document.querySelector(`.rule-box[data-index="${i}"]`);
+    const box = document.querySelector(`#htt-rules .rule-box[data-index="${i}"]`);
     const msgEl = box?.querySelector('.htt-rule-save-msg');
     httPost('action=save_rule&rule=' + encodeURIComponent(JSON.stringify(rule)))
         .then(r => r.json()).then(d => {
@@ -794,7 +794,7 @@ function httTestRule(i) {
 function httTestConditions(i) {
     httCollectRules();
     const rule = httRules[i];
-    const box = document.querySelector(`.rule-box[data-index="${i}"]`);
+    const box = document.querySelector(`#htt-rules .rule-box[data-index="${i}"]`);
     const resultsEl = box?.querySelector('.htt-cond-results');
     if (resultsEl) resultsEl.innerHTML = '<div class="row" style="opacity:0.75">Testing...</div>';
     httPost('action=test_conditions&rule=' + encodeURIComponent(JSON.stringify(rule)))

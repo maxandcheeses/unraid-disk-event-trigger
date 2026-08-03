@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.23">
+<!ENTITY version   "2026.08.03.24">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "ccaa35c76c3de38cd258fc29596f6c32">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.24
+- Fix: **Test Conditions** (and Save &amp; Apply's confirmation message) silently did nothing when a global Connection happened to share the same position/index as the rule being tested - both rules and connections use the same `.rule-box[data-index]` markup, so the unscoped lookup could grab a Connection's box instead of the Rule's and find no results panel to write into. Scoped both lookups to `#htt-rules` so they always find the right box.
+
 ###2026.08.03.23
 - **CHANGE**: removed the rule-level "Action" (Turn ON/Turn OFF) dropdown - it was a confusing extra step on top of each protocol's own config, and only Tasmota HTTP actually needed an on/off choice (MQTT and webhook already fully describe what they send via their topic+payload / URL+body). Tasmota HTTP rules now pick "Command: Power On/Power Off" directly within the HTTP section instead; existing rules migrate their old Action choice into that field automatically. The rule status badge is now a simple "Fired"/"Idle" instead of "Fired: ON/OFF" since there's no single rule-level polarity to label anymore.
 
