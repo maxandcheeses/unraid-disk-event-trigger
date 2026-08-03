@@ -28,7 +28,7 @@ switch ($action) {
         unset($d);
         $svc = trim(shell_exec('/etc/rc.d/rc.unraid-disk-event-trigger status 2>&1'));
         respond([
-            'disks' => $disks,
+            'disks' => array_values($disks),
             'state' => htt_load_state(),
             'array' => htt_array_status(),
             'service_status' => $svc,
