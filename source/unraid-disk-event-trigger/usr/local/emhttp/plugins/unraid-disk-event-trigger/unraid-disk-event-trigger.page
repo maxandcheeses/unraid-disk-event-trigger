@@ -227,6 +227,7 @@ function httRenderRules() {
                 <label>Delay</label>
                 <input type="number" class="htt-delay" min="0" style="width:70px" value="${rule.delay_seconds ?? 0}"> sec <span class="htt-help" title="Only fire once the condition has held continuously for this many seconds. If it reverts before the delay elapses, the action is never sent. 0 = fire immediately.">&#9432;</span>
             </div>
+            <hr style="border:none;border-top:1px solid #666;margin:12px 0">
             <div class="row">
                 <label>Force resend</label>
                 <label style="min-width:auto"><input type="checkbox" class="htt-force-resend" ${rule.force_resend?'checked':''}> re-send this action every poll cycle while the condition holds, even after it's already fired</label>
