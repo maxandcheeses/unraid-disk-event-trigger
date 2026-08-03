@@ -19,14 +19,20 @@ switch ($action) {
         $raw = $_POST['config'] ?? '';
         $config = json_decode($raw, true);
         if (!is_array($config)) respond(['ok' => false, 'error' => 'invalid config']);
-        foreach ($config['rules'] as &$rule) {
-            if (empty($rule['id'])) $rule['id'] = bin2hex(random_bytes(6));
+        $errors = htt_validate_config($config);
+        if ($errors) respond(['ok' => false, 'error' => implode('; ', $errors)]);
+        respond(htt_apply_config($config));
+
+    case 'save_config_yaml':
+        $yaml = $_POST['yaml'] ?? '';
+        try {
+            $config = htt_from_yaml($yaml);
+        } catch (HttYamlError $e) {
+            respond(['ok' => false, 'error' => 'YAML parse error: ' . $e->getMessage()]);
         }
-        unset($rule);
-        htt_save_config($config);
-        $cmd = ($config['enabled'] ?? true) ? 'restart' : 'stop';
-        shell_exec('/etc/rc.d/rc.unraid-disk-event-trigger ' . $cmd . ' > /dev/null 2>&1 &');
-        respond(['ok' => true]);
+        $errors = htt_validate_config($config);
+        if ($errors) respond(['ok' => false, 'error' => implode('; ', $errors)]);
+        respond(htt_apply_config($config));
 
     case 'get_status':
         $disks = htt_list_disks();

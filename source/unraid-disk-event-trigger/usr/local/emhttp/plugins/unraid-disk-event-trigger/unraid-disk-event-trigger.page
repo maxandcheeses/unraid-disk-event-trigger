@@ -85,12 +85,14 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
   <button type="button" onclick="httSaveConfig()">Save &amp; Apply</button>
   <span id="htt-save-msg"></span>
 
-  <h3>Backup</h3>
+  <h3>Backup / YAML editor</h3>
   <div class="row">
     <button type="button" onclick="httShowYaml()">View as YAML</button>
-    <a id="htt-yaml-download" href="#" style="display:none;margin-left:10px">Download rules.yaml</a>
+    <a id="htt-yaml-download" href="#" style="display:none;margin-left:10px">Download unraid-disk-event-trigger.yaml</a>
+    <button type="button" id="htt-yaml-apply" onclick="httApplyYaml()" style="display:none;margin-left:10px">Validate &amp; Apply YAML</button>
   </div>
-  <textarea id="htt-yaml-view" readonly style="display:none;width:100%;height:260px;font-family:monospace;font-size:12px;margin-top:8px" onclick="this.select()"></textarea>
+  <textarea id="htt-yaml-view" style="display:none;width:100%;height:260px;font-family:monospace;font-size:12px;margin-top:8px"></textarea>
+  <span id="htt-yaml-msg"></span>
 
   <h3>Log</h3>
   <button type="button" onclick="httLoadLog()">Refresh Log</button>
@@ -364,13 +366,43 @@ function httShowYaml() {
         const ta = document.getElementById('htt-yaml-view');
         ta.value = yaml;
         ta.style.display = '';
-        ta.select();
         const link = document.getElementById('htt-yaml-download');
         const blob = new Blob([yaml], { type: 'text/yaml' });
         link.href = URL.createObjectURL(blob);
-        link.download = 'unraid-disk-event-trigger-rules.yaml';
+        link.download = 'unraid-disk-event-trigger.yaml';
         link.style.display = '';
+        document.getElementById('htt-yaml-apply').style.display = '';
     });
+}
+
+function httApplyYaml() {
+    const yaml = document.getElementById('htt-yaml-view').value;
+    const msg = document.getElementById('htt-yaml-msg');
+    msg.textContent = ' Validating...';
+    httPost('action=save_config_yaml&yaml=' + encodeURIComponent(yaml))
+        .then(r => r.json()).then(d => {
+            if (d.ok) {
+                msg.textContent = ' Applied.';
+                setTimeout(() => msg.textContent = '', 3000);
+                // Refresh the rule editor / global settings from the newly saved config.
+                fetch(HTT_ENDPOINT + '?action=get_config', { credentials: 'same-origin' }).then(r => r.json()).then(config => {
+                    httRules = config.rules || [];
+                    document.getElementById('htt-poll-interval').value = config.poll_interval ?? 60;
+                    const pluginEnabled = document.getElementById('htt-plugin-enabled');
+                    pluginEnabled.checked = config.enabled ?? true;
+                    const box = document.getElementById('htt-plugin-toggle');
+                    box.classList.remove('enabled', 'disabled');
+                    box.classList.add(pluginEnabled.checked ? 'enabled' : 'disabled');
+                    httCollapsedOverride = {};
+                    httRenderRules();
+                    httLoadStatus();
+                });
+            } else {
+                msg.textContent = ' Not applied - ' + (d.error || 'unknown error');
+            }
+        }).catch(err => {
+            msg.textContent = ' Not applied - ' + err;
+        });
 }
 
 function httLoadStatus() {

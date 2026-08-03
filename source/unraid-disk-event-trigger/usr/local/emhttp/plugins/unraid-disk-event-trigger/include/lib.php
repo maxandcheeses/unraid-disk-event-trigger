@@ -43,6 +43,53 @@ function htt_save_config($config) {
     file_put_contents(HTT_RULES_FILE, json_encode($config, JSON_PRETTY_PRINT));
 }
 
+/** Returns a list of human-readable error strings; empty means valid. */
+function htt_validate_config($config) {
+    $errors = [];
+    if (!is_array($config)) return ['config must be a mapping with poll_interval/rules keys'];
+
+    if (isset($config['enabled']) && !is_bool($config['enabled'])) {
+        $errors[] = 'enabled must be true or false';
+    }
+    if (isset($config['poll_interval']) && !is_numeric($config['poll_interval'])) {
+        $errors[] = 'poll_interval must be a number';
+    }
+    if (isset($config['rules']) && !is_array($config['rules'])) {
+        $errors[] = 'rules must be a list';
+        return $errors;
+    }
+
+    foreach (($config['rules'] ?? []) as $idx => $rule) {
+        $label = "rule #" . ($idx + 1) . (is_array($rule) && !empty($rule['name']) ? " ('{$rule['name']}')" : '');
+        if (!is_array($rule)) { $errors[] = "$label must be a mapping"; continue; }
+        if (isset($rule['on_temp']) && !is_numeric($rule['on_temp'])) $errors[] = "$label: on_temp must be a number";
+        if (isset($rule['off_temp']) && !is_numeric($rule['off_temp'])) $errors[] = "$label: off_temp must be a number";
+        if (isset($rule['protocol']) && !in_array($rule['protocol'], ['http', 'mqtt'], true)) {
+            $errors[] = "$label: protocol must be 'http' or 'mqtt'";
+        }
+        if (isset($rule['disks']) && !is_array($rule['disks'])) $errors[] = "$label: disks must be a list";
+        if (isset($rule['aggregate']) && !in_array($rule['aggregate'], ['max', 'avg', 'min'], true)) {
+            $errors[] = "$label: aggregate must be 'max', 'avg', or 'min'";
+        }
+        if (isset($rule['http']) && !is_array($rule['http'])) $errors[] = "$label: http must be a mapping";
+        if (isset($rule['mqtt']) && !is_array($rule['mqtt'])) $errors[] = "$label: mqtt must be a mapping";
+    }
+    return $errors;
+}
+
+/** Assigns rule IDs, persists, and (re)starts/stops the poller per config.enabled. Caller must validate first. */
+function htt_apply_config($config) {
+    $config['rules'] = $config['rules'] ?? [];
+    foreach ($config['rules'] as &$rule) {
+        if (empty($rule['id'])) $rule['id'] = bin2hex(random_bytes(6));
+    }
+    unset($rule);
+    htt_save_config($config);
+    $cmd = ($config['enabled'] ?? true) ? 'restart' : 'stop';
+    shell_exec('/etc/rc.d/rc.unraid-disk-event-trigger ' . $cmd . ' > /dev/null 2>&1 &');
+    return ['ok' => true];
+}
+
 /**
  * Minimal dependency-free array -> YAML dumper, sufficient for this
  * plugin's own config shape (nested assoc arrays, lists, scalars). Not a
@@ -92,6 +139,118 @@ function htt_yaml_scalar($v) {
     if ($s === '' || preg_match('/^[\s]|[\s]$|[:#\[\]{}&*!|>\'"%@`]|^(true|false|null|yes|no|on|off|~)$/i', $s) || is_numeric($s)) {
         return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $s) . '"';
     }
+    return $s;
+}
+
+class HttYamlError extends Exception {}
+
+/**
+ * Minimal dependency-free YAML -> array parser, matching the restricted
+ * subset htt_to_yaml() emits (2-space indent, block maps/sequences,
+ * quoted/plain scalars) plus reasonable hand edits in the same style.
+ * Not a general YAML parser - throws HttYamlError on anything it can't
+ * confidently interpret, rather than silently guessing.
+ */
+function htt_from_yaml($text) {
+    $rawLines = explode("\n", str_replace("\r\n", "\n", $text));
+    $lines = []; // each: ['indent' => int, 'content' => string, 'no' => original line number]
+    foreach ($rawLines as $no => $raw) {
+        $trimmed = ltrim($raw, ' ');
+        $indent = strlen($raw) - strlen($trimmed);
+        $trimmed = rtrim($trimmed);
+        if ($trimmed === '' || $trimmed[0] === '#') continue;
+        $lines[] = ['indent' => $indent, 'content' => $trimmed, 'no' => $no + 1];
+    }
+    if (empty($lines)) return [];
+    $i = 0;
+    $result = htt_yaml_parse_block($lines, $i, $lines[0]['indent']);
+    if ($i < count($lines)) {
+        throw new HttYamlError("unexpected indentation at line {$lines[$i]['no']}: \"{$lines[$i]['content']}\"");
+    }
+    return $result;
+}
+
+function htt_yaml_parse_block(&$lines, &$i, $blockIndent) {
+    if ($i >= count($lines) || $lines[$i]['indent'] !== $blockIndent) {
+        throw new HttYamlError("expected content at indent $blockIndent");
+    }
+    if ($lines[$i]['content'] === '-' || strncmp($lines[$i]['content'], '- ', 2) === 0) {
+        return htt_yaml_parse_sequence($lines, $i, $blockIndent);
+    }
+    if (preg_match('/^[A-Za-z0-9_]+:/', $lines[$i]['content'])) {
+        return htt_yaml_parse_mapping($lines, $i, $blockIndent);
+    }
+    if ($lines[$i]['content'] === '[]' || $lines[$i]['content'] === '{}') {
+        $i++;
+        return [];
+    }
+    throw new HttYamlError("line {$lines[$i]['no']}: can't parse \"{$lines[$i]['content']}\"");
+}
+
+function htt_yaml_parse_sequence(&$lines, &$i, $blockIndent) {
+    $result = [];
+    while ($i < count($lines) && $lines[$i]['indent'] === $blockIndent
+        && ($lines[$i]['content'] === '-' || strncmp($lines[$i]['content'], '- ', 2) === 0)) {
+        $rest = trim(substr($lines[$i]['content'], 1));
+        $dashLine = $lines[$i];
+        $i++;
+        if ($rest === '') {
+            if ($i < count($lines) && $lines[$i]['indent'] > $blockIndent) {
+                $result[] = htt_yaml_parse_block($lines, $i, $lines[$i]['indent']);
+            } else {
+                $result[] = null;
+            }
+        } elseif (preg_match('/^([A-Za-z0-9_]+):\s*(.*)$/', $rest, $m)) {
+            // "- key: value" shorthand for a map whose first key is inline with the dash.
+            $childIndent = $dashLine['indent'] + 2;
+            $map = [];
+            $map[$m[1]] = htt_yaml_parse_scalar_or_nested($lines, $i, $m[2], $childIndent);
+            while ($i < count($lines) && $lines[$i]['indent'] === $childIndent
+                && preg_match('/^[A-Za-z0-9_]+:/', $lines[$i]['content'])) {
+                $more = htt_yaml_parse_mapping($lines, $i, $childIndent);
+                $map = array_merge($map, $more);
+            }
+            $result[] = $map;
+        } else {
+            $result[] = htt_yaml_parse_scalar($rest);
+        }
+    }
+    return $result;
+}
+
+function htt_yaml_parse_mapping(&$lines, &$i, $blockIndent) {
+    $result = [];
+    while ($i < count($lines) && $lines[$i]['indent'] === $blockIndent
+        && preg_match('/^([A-Za-z0-9_]+):\s*(.*)$/', $lines[$i]['content'], $m)) {
+        $i++;
+        $result[$m[1]] = htt_yaml_parse_scalar_or_nested($lines, $i, $m[2], $blockIndent);
+    }
+    return $result;
+}
+
+/** Handle a "key: <rest>" line where <rest> may be empty (nested block follows), [], {}, or a scalar. */
+function htt_yaml_parse_scalar_or_nested(&$lines, &$i, $rest, $parentIndent) {
+    $rest = trim($rest);
+    if ($rest === '') {
+        if ($i < count($lines) && $lines[$i]['indent'] > $parentIndent) {
+            return htt_yaml_parse_block($lines, $i, $lines[$i]['indent']);
+        }
+        return null;
+    }
+    if ($rest === '[]' || $rest === '{}') return [];
+    return htt_yaml_parse_scalar($rest);
+}
+
+function htt_yaml_parse_scalar($s) {
+    $s = trim($s);
+    if (strlen($s) >= 2 && $s[0] === '"' && substr($s, -1) === '"') {
+        $inner = substr($s, 1, -1);
+        return str_replace(['\\"', '\\\\'], ['"', '\\'], $inner);
+    }
+    if (strcasecmp($s, 'null') === 0 || $s === '~') return null;
+    if (strcasecmp($s, 'true') === 0) return true;
+    if (strcasecmp($s, 'false') === 0) return false;
+    if (is_numeric($s)) return strpos($s, '.') !== false ? (float)$s : (int)$s;
     return $s;
 }
 
