@@ -154,28 +154,31 @@ function httNormalizeRule(rule) {
     return rule;
 }
 
+function httBadgeTitle(fired) {
+    return fired
+        ? 'Click to clear the fired flag - the rule will re-fire next cycle if its condition is still met.'
+        : 'Click to mark as fired - suppresses the next auto-fire until the condition next clears and re-triggers.';
+}
+
 function httBadgeHtml(rule) {
     const s = httLastState[rule.id];
     const fired = !!(s && s.fired);
     const text = fired ? 'Fired' : 'Idle';
-    const title = fired
-        ? 'Click to clear the fired flag - the rule will re-fire next cycle if its condition is still met.'
-        : 'Already idle (nothing to clear).';
-    return `<span class="htt-relay-badge ${fired?'on':''}" data-rule-id="${rule.id||''}" onclick="httClearFired('${rule.id||''}')" title="${title}" style="cursor:pointer">${text}</span>`;
+    return `<span class="htt-relay-badge ${fired?'on':''}" data-rule-id="${rule.id||''}" onclick="httToggleFired('${rule.id||''}')" title="${httBadgeTitle(fired)}" style="cursor:pointer">${text}</span>`;
 }
 
-function httClearFired(ruleId) {
+function httToggleFired(ruleId) {
     if (!ruleId) return;
-    httPost('action=clear_fired&id=' + encodeURIComponent(ruleId))
+    httPost('action=toggle_fired&id=' + encodeURIComponent(ruleId))
         .then(r => r.json()).then(d => {
-            if (d.ok) {
-                if (httLastState[ruleId]) httLastState[ruleId].fired = false;
-                document.querySelectorAll(`.htt-relay-badge[data-rule-id="${ruleId}"]`).forEach(badge => {
-                    badge.classList.remove('on');
-                    badge.textContent = 'Idle';
-                    badge.title = 'Already idle (nothing to clear).';
-                });
-            }
+            if (!d.ok) return;
+            if (!httLastState[ruleId]) httLastState[ruleId] = {};
+            httLastState[ruleId].fired = d.fired;
+            document.querySelectorAll(`.htt-relay-badge[data-rule-id="${ruleId}"]`).forEach(badge => {
+                badge.classList.toggle('on', d.fired);
+                badge.textContent = d.fired ? 'Fired' : 'Idle';
+                badge.title = httBadgeTitle(d.fired);
+            });
         });
 }
 
@@ -268,6 +271,8 @@ function httConditionBlock(cond, ruleIndex, condIndex, totalConditions, ruleId) 
                     <option value="parity_check" ${triggerType==='parity_check'?'selected':''}>Parity check</option>
                     <option value="rebuild" ${triggerType==='rebuild'?'selected':''}>Array/data rebuild</option>
                 </select>`}
+                <button type="button" onclick="httMoveCondition(${ruleIndex},${condIndex},-1)" ${condIndex===0?'disabled':''} style="margin-left:8px" title="Move up">&#8593;</button>
+                <button type="button" onclick="httMoveCondition(${ruleIndex},${condIndex},1)" ${condIndex===totalConditions-1?'disabled':''} title="Move down">&#8595;</button>
                 <button type="button" onclick="httDuplicateCondition(${ruleIndex},${condIndex})" style="margin-left:8px">Duplicate condition</button>
                 ${totalConditions > 1 ? `<button type="button" onclick="httRemoveCondition(${ruleIndex},${condIndex})" style="margin-left:8px">Remove condition</button>` : ''}
             </div>
@@ -336,6 +341,16 @@ function httToggleCondTriggerType(sel) {
 function httAddCondition(ruleIndex) {
     httCollectRules();
     httRules[ruleIndex].conditions.push({ trigger_type: 'temp', disks: ['all'], aggregate: 'max', direction: 'on', threshold: 40, join: 'and' });
+    httRenderRules();
+}
+
+/** Conditions are evaluated left-to-right, so this changes evaluation order, not just display order. */
+function httMoveCondition(ruleIndex, condIndex, delta) {
+    httCollectRules();
+    const conditions = httRules[ruleIndex].conditions;
+    const j = condIndex + delta;
+    if (j < 0 || j >= conditions.length) return;
+    [conditions[condIndex], conditions[j]] = [conditions[j], conditions[condIndex]];
     httRenderRules();
 }
 
@@ -1033,9 +1048,7 @@ function httLoadStatus() {
             const fired = !!(s && s.fired);
             badge.classList.toggle('on', fired);
             badge.textContent = fired ? 'Fired' : 'Idle';
-            badge.title = fired
-                ? 'Click to clear the fired flag - the rule will re-fire next cycle if its condition is still met.'
-                : 'Already idle (nothing to clear).';
+            badge.title = httBadgeTitle(fired);
         });
     });
 }

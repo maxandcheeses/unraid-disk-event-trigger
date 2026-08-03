@@ -77,14 +77,20 @@ switch ($action) {
         if ($errors) respond(['ok' => false, 'error' => implode('; ', $errors)]);
         respond(htt_apply_config($config));
 
-    case 'clear_fired':
+    case 'toggle_fired':
+        // Manual override only - flips the tracked "fired" bookkeeping
+        // without sending any command. Idle -> Fired suppresses the next
+        // auto-fire (e.g. you handled it manually); Fired -> Idle lets the
+        // rule fire again as soon as its condition is next met.
         $id = $_POST['id'] ?? '';
         if ($id === '') respond(['ok' => false, 'error' => 'missing rule id']);
         $state = htt_load_state();
-        unset($state[$id]['fired'], $state[$id]['pending_since']);
+        $newFired = empty($state[$id]['fired']);
+        $state[$id]['fired'] = $newFired;
+        unset($state[$id]['pending_since']);
         htt_save_state($state);
-        htt_log("Fired state manually cleared for rule id '$id'");
-        respond(['ok' => true]);
+        htt_log("Fired state manually " . ($newFired ? 'set' : 'cleared') . " for rule id '$id'");
+        respond(['ok' => true, 'fired' => $newFired]);
 
     case 'get_status':
         $disks = htt_list_disks();
