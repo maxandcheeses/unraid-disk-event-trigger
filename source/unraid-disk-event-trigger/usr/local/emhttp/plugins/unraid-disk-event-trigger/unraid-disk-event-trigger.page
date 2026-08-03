@@ -85,7 +85,7 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
     <input type="number" id="htt-poll-interval" min="10" value="<?= intval($config['poll_interval']) ?>">
   </div>
   <div class="row">
-    <button type="button" onclick="httSaveGlobal()">Save &amp; Apply</button>
+    <button type="button" id="htt-global-save-btn" onclick="httSaveGlobal()" style="display:none;font-weight:600">Save &amp; Apply</button>
     <span id="htt-global-save-msg"></span>
   </div>
 
@@ -95,7 +95,7 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
   <div class="row">
     <button type="button" onclick="httAddConnection()">+ Add Connection</button>
     &nbsp;&nbsp;
-    <button type="button" onclick="httSaveConnections()">Save &amp; Apply</button>
+    <button type="button" id="htt-connections-save-btn" onclick="httSaveConnections()" style="display:none;font-weight:600">Save &amp; Apply</button>
     <span id="htt-connections-save-msg"></span>
   </div>
 
@@ -467,6 +467,7 @@ function httAddConnection() {
     httConnections.push(newConn);
     httConnCollapsedOverride[newConn.id] = false; // keep the newly added connection open for editing
     httRenderConnections();
+    httUpdateConnectionsDirty();
 }
 
 function httTestConnection(i) {
@@ -489,6 +490,7 @@ function httRemoveConnection(i) {
     httCollectConnections();
     httConnections.splice(i, 1);
     httRenderConnections();
+    httUpdateConnectionsDirty();
 }
 
 function httCollectConnections() {
@@ -522,6 +524,18 @@ function httCollectConnections() {
     return conns;
 }
 
+let httConnectionsSnapshot = null; // JSON of the connections list as last saved to disk
+
+function httSnapshotConnections() {
+    httConnectionsSnapshot = JSON.stringify(httConnections);
+}
+
+function httUpdateConnectionsDirty() {
+    const btn = document.getElementById('htt-connections-save-btn');
+    if (!btn) return;
+    btn.style.display = (JSON.stringify(httCollectConnections()) !== httConnectionsSnapshot) ? '' : 'none';
+}
+
 function httSaveConnections() {
     const conns = httCollectConnections();
     httPost('action=save_connections&connections=' + encodeURIComponent(JSON.stringify(conns)))
@@ -531,7 +545,19 @@ function httSaveConnections() {
             setTimeout(() => msg.textContent = '', 3000);
             httRenderConnections();
             httRenderRules(); // connection names/list shown in rule dropdowns may have changed
+            if (d.ok) { httSnapshotConnections(); httUpdateConnectionsDirty(); }
         });
+}
+
+let httGlobalPollSnapshot = null; // last-saved poll_interval value, as a string - "enabled" auto-saves on its own so isn't tracked here
+
+function httSnapshotGlobalPoll() {
+    httGlobalPollSnapshot = document.getElementById('htt-poll-interval').value;
+}
+
+function httUpdateGlobalDirty() {
+    const btn = document.getElementById('htt-global-save-btn');
+    if (btn) btn.style.display = (document.getElementById('htt-poll-interval').value !== httGlobalPollSnapshot) ? '' : 'none';
 }
 
 function httSaveGlobal() {
@@ -545,6 +571,7 @@ function httSaveGlobal() {
             const box = document.getElementById('htt-plugin-toggle');
             box.classList.remove('enabled', 'disabled');
             box.classList.add(enabled ? 'enabled' : 'disabled');
+            if (d.ok) { httSnapshotGlobalPoll(); httUpdateGlobalDirty(); }
         });
 }
 
@@ -678,7 +705,7 @@ function httRenderRules() {
             <div class="htt-checkstate-results"></div>
             <hr style="border:none;border-top:1px solid #666;margin:12px 0">
             <div class="row">
-                <button type="button" onclick="httSaveRule(${i})">Save &amp; Apply</button>
+                <button type="button" class="htt-rule-footer-save" onclick="httSaveRule(${i})" style="display:${dirty?'':'none'}">Save &amp; Apply</button>
                 <span class="htt-rule-save-msg"></span>
             </div>
             </div>
@@ -870,10 +897,11 @@ function httSnapshotRules(rules) {
 
 function httUpdateRuleDirtyIndicator(box) {
     const rule = httCollectRuleFromBox(box, { id: box.dataset.ruleId });
-    const btn = box.querySelector('.htt-rule-header-save');
-    if (!btn) return;
     const dirty = httRuleSnapshots[rule.id] !== JSON.stringify(rule);
-    btn.style.display = dirty ? '' : 'none';
+    const headerBtn = box.querySelector('.htt-rule-header-save');
+    if (headerBtn) headerBtn.style.display = dirty ? '' : 'none';
+    const footerBtn = box.querySelector('.htt-rule-footer-save');
+    if (footerBtn) footerBtn.style.display = dirty ? '' : 'none';
 }
 
 function httSaveRule(i) {
@@ -1019,11 +1047,17 @@ function httApplyYaml() {
                     httCollapsedOverride = {};
                     httRenderConnections();
                     httRenderRules();
-                    // Re-collect through the DOM so the snapshot is in the same
-                    // canonical shape httCollectRuleFromBox() produces later.
+                    // Re-collect through the DOM so the snapshots are in the
+                    // same canonical shape the collectors produce later.
                     httRules = httCollectRules();
                     httSnapshotRules(httRules);
                     httRenderRules();
+                    httCollectConnections();
+                    httSnapshotConnections();
+                    httRenderConnections();
+                    httSnapshotGlobalPoll();
+                    httUpdateGlobalDirty();
+                    httUpdateConnectionsDirty();
                     httUpdateRulesStructureButton();
                     httLoadStatus();
                 });
@@ -1089,12 +1123,20 @@ function httClearLog() {
 httRenderConnections();
 httRenderRules();
 // Re-collect once through the DOM so the "as saved" snapshot is in the same
-// canonical shape httCollectRuleFromBox() produces later - otherwise every
-// rule would show as dirty on load just from key-order/shape differences
-// versus the raw JSON straight off disk.
+// canonical shape httCollectRuleFromBox()/httCollectConnections() produce
+// later - otherwise everything would show as dirty on load just from
+// key-order/shape differences versus the raw JSON straight off disk.
 httRules = httCollectRules();
 httSnapshotRules(httRules);
 httRenderRules();
+httCollectConnections();
+httSnapshotConnections();
+httRenderConnections();
+httSnapshotGlobalPoll();
+document.getElementById('htt-poll-interval').addEventListener('input', httUpdateGlobalDirty);
+document.getElementById('htt-poll-interval').addEventListener('change', httUpdateGlobalDirty);
+document.getElementById('htt-connections').addEventListener('input', httUpdateConnectionsDirty);
+document.getElementById('htt-connections').addEventListener('change', httUpdateConnectionsDirty);
 httLoadStatus();
 httLoadLog();
 setInterval(httLoadStatus, 15000);

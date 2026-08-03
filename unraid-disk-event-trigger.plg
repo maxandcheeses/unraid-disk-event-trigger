@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.30">
+<!ENTITY version   "2026.08.03.31">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "01784996491bf735c9ccba8295ace08c">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.31
+- Change: the Global Settings and Connections **Save &amp; Apply** buttons (and a rule's bottom Save &amp; Apply, alongside its header one) now only show up when there's actually something unsaved, matching how each rule's header button already worked - the settings page no longer shows a permanently-visible Save button next to sections with nothing to save.
+
 ###2026.08.03.30
 - **CHANGE**: replaced the "Also reset" rule-to-rule relationship (v2026.08.03.26) with a proper condition type instead - a condition can now check "Another rule's Fired/Idle state", so e.g. a fan-off rule can require "the parity-check-keep-on rule is Idle" directly in its own AND/OR chain, rather than the other rule needing to know it should reset this one. More flexible and visible in one place (Test Conditions shows it like any other condition).
 - Add: **Auto-reset** option per rule - once fired, automatically clear the fired flag after N minutes (default 1440 = 24h when enabled) even if conditions still hold, so the rule fires fresh again next cycle instead of staying "fired" forever. Independent of Force resend, which re-sends every cycle instead of waiting out a timer.
