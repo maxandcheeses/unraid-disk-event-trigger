@@ -199,8 +199,10 @@ function httRenderConnections() {
                     <option value="webhook" ${type==='webhook'?'selected':''}>Generic HTTP/HTTPS webhook</option>
                 </select>
                 <span class="htt-rule-actions">
+                    <button type="button" onclick="httTestConnection(${i})" ${type==='webhook'?'disabled title="Webhook connections have no fixed endpoint of their own to test - test from a rule using this connection instead."':''}>Test</button>
                     <button type="button" onclick="httRemoveConnection(${i})">Remove</button>
                 </span>
+                <span class="htt-conn-test-msg"></span>
             </h4>
             <div class="proto-block htt-conn-http-block ${type==='http'?'active':''}">
                 <div class="row"><label>Device base URL</label><input type="text" class="htt-conn-http-url" value="${(conn.base_url)||''}" placeholder="http://192.168.1.50"></div>
@@ -231,12 +233,31 @@ function httToggleConnType(sel) {
     box.querySelector('.htt-conn-http-block').classList.toggle('active', sel.value === 'http');
     box.querySelector('.htt-conn-mqtt-block').classList.toggle('active', sel.value === 'mqtt');
     box.querySelector('.htt-conn-webhook-block').classList.toggle('active', sel.value === 'webhook');
+    const testBtn = box.querySelector('.htt-rule-actions button');
+    testBtn.disabled = sel.value === 'webhook';
+    testBtn.title = sel.value === 'webhook' ? 'Webhook connections have no fixed endpoint of their own to test - test from a rule using this connection instead.' : '';
 }
 
 function httAddConnection() {
     httCollectConnections();
     httConnections.push({ id: httUid(), name: 'New Connection', type: 'mqtt' });
     httRenderConnections();
+}
+
+function httTestConnection(i) {
+    const conns = httCollectConnections();
+    const conn = conns[i];
+    const msgEl = document.querySelectorAll('#htt-connections .rule-box')[i]?.querySelector('.htt-conn-test-msg');
+    if (msgEl) msgEl.textContent = ' Testing...';
+    httPost('action=test_connection&connection=' + encodeURIComponent(JSON.stringify(conn)))
+        .then(r => r.json()).then(d => {
+            if (msgEl) {
+                msgEl.textContent = d.ok ? ' OK' : ' Failed: ' + (d.error || 'unknown error');
+                msgEl.style.color = d.ok ? '#2ea043' : '#cf5b5b';
+            }
+        }).catch(err => {
+            if (msgEl) { msgEl.textContent = ' Failed: ' + err; msgEl.style.color = '#cf5b5b'; }
+        });
 }
 
 function httRemoveConnection(i) {
@@ -404,7 +425,6 @@ function httRenderRules() {
                 <div class="row"><label>Username</label><input type="text" class="htt-mqtt-user" value="${(rule.mqtt?.username)||''}"></div>
                 <div class="row"><label>Password</label>${httPassField('htt-mqtt-pass', (rule.mqtt?.password)||'')}</div>
                 </div>
-                <div class="row"><button type="button" onclick="httTestMqtt(${i})">Test MQTT Connection</button></div>
                 <div class="row"><label>Topic</label><input type="text" class="htt-mqtt-topic" value="${(rule.mqtt?.topic)||''}" placeholder="cmnd/tasmota_xx/POWER  or  zigbee2mqtt/plug/set"></div>
                 <div class="row"><label>Payload</label><input type="text" class="htt-mqtt-payload" value="${(rule.mqtt?.payload)||(direction==='off'?'OFF':'ON')}"></div>
                 <div class="row"><label>State topic (optional)</label><input type="text" class="htt-mqtt-statetopic" value="${(rule.mqtt?.state_topic)||''}" placeholder="zigbee2mqtt/plug (device's own state topic, not /set)"></div>
@@ -619,13 +639,6 @@ function httTestRule(i) {
     const rule = httRules[i];
     httPost('action=test_command&rule=' + encodeURIComponent(JSON.stringify(rule)))
         .then(r => r.json()).then(d => alert(d.ok ? 'Command sent successfully' : 'Command failed - check log'));
-}
-
-function httTestMqtt(i) {
-    httCollectRules();
-    const rule = httRules[i];
-    httPost('action=test_mqtt&rule=' + encodeURIComponent(JSON.stringify(rule)))
-        .then(r => r.json()).then(d => alert(d.ok ? 'MQTT connection OK' : 'MQTT connection failed: ' + (d.error || 'unknown error')));
 }
 
 function httCheckState(i) {

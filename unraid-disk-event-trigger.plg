@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.17">
+<!ENTITY version   "2026.08.03.18">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "a4401c58c8d7b4e42c291b186d101107">
@@ -11,6 +11,10 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.18
+- Add: **Test** button on each global Connection (MQTT/Tasmota HTTP) to verify reachability/auth without needing a rule. Webhook connections have no fixed endpoint of their own, so their Test button is disabled - test those from a rule instead.
+- Remove: the per-rule "Test MQTT Connection" button, now redundant with testing the connection directly under Global Settings (a rule with a "Custom" MQTT connection can still use its own "Check Device State" button).
+
 ###2026.08.03.17
 - Add: global **Connections** - define a named MQTT broker or HTTP/webhook endpoint once under Global Settings, then pick it from any rule's protocol dropdown instead of re-entering host/port/credentials per rule. Rules can still enter connection details manually ("Custom") as before.
 - Change: Global Settings and Connections now each have their own Save &amp; Apply button, and each rule has its own Save &amp; Apply button, instead of one button saving every rule and setting at once. Adding/removing/reordering/duplicating a rule still saves immediately.

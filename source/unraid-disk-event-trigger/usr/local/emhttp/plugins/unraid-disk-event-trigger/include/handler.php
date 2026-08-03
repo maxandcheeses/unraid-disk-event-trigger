@@ -121,12 +121,11 @@ switch ($action) {
         }
         respond(['ok' => $ok]);
 
-    case 'test_mqtt':
-        $rule = json_decode($_POST['rule'] ?? '', true);
-        if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
-        $m = htt_resolve_protocol(htt_load_config(), $rule, 'mqtt');
-        $result = htt_mqtt_test_connection($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '', 5, !empty($m['tls']), !empty($m['insecure_tls']));
-        htt_log("MQTT connection test for rule '{$rule['name']}': " . ($result['ok'] ? 'OK' : $result['error']));
+    case 'test_connection':
+        $conn = json_decode($_POST['connection'] ?? '', true);
+        if (!is_array($conn)) respond(['ok' => false, 'error' => 'invalid connection']);
+        $result = htt_test_connection($conn);
+        htt_log("Connection test for '{$conn['name']}': " . ($result['ok'] ? 'OK' : $result['error']));
         respond($result);
 
     case 'get_device_state':

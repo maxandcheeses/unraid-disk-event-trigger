@@ -545,6 +545,53 @@ function htt_mqtt_test_connection($host, $port, $username, $password, $timeout =
 }
 
 /**
+ * Test-only: verify a Tasmota HTTP connection is reachable and (if
+ * configured) authenticated, without changing any relay state. Returns
+ * ['ok'=>bool, 'error'=>string].
+ */
+function htt_http_test_connection($baseUrl, $username, $password) {
+    $base = rtrim($baseUrl ?? '', '/');
+    if ($base === '') return ['ok' => false, 'error' => 'no base URL configured'];
+    $url = "$base/cm?cmnd=" . urlencode('Status');
+    if (!empty($username)) {
+        $url .= '&user=' . urlencode($username) . '&password=' . urlencode($password ?? '');
+    }
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 8,
+        CURLOPT_CONNECTTIMEOUT => 5,
+    ]);
+    $result = curl_exec($ch);
+    $err = curl_error($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($result === false) return ['ok' => false, 'error' => $err];
+    if ($status >= 400) return ['ok' => false, 'error' => "device responded with HTTP $status"];
+    return ['ok' => true, 'error' => ''];
+}
+
+/**
+ * Test a saved global connection (from the Connections section, not a
+ * rule) for basic reachability/auth. Webhook connections have no fixed
+ * endpoint of their own (the URL lives on each rule), so there's nothing
+ * meaningful to test at the connection level.
+ */
+function htt_test_connection($conn) {
+    $type = $conn['type'] ?? '';
+    if ($type === 'mqtt') {
+        return htt_mqtt_test_connection($conn['host'] ?? '', intval($conn['port'] ?? 1883), $conn['username'] ?? '', $conn['password'] ?? '', 5, !empty($conn['tls']), !empty($conn['insecure_tls']));
+    }
+    if ($type === 'http') {
+        return htt_http_test_connection($conn['base_url'] ?? '', $conn['username'] ?? '', $conn['password'] ?? '');
+    }
+    if ($type === 'webhook') {
+        return ['ok' => false, 'error' => "webhook connections don't have a fixed endpoint to test - use a rule's own \"Check Device State\" or Test button instead"];
+    }
+    return ['ok' => false, 'error' => 'unknown connection type'];
+}
+
+/**
  * Query a Tasmota device's actual current relay state via its HTTP status
  * API (does not change anything). Returns
  * ['ok'=>bool, 'state'=>'on'|'off'|null, 'raw'=>string, 'error'=>string].
