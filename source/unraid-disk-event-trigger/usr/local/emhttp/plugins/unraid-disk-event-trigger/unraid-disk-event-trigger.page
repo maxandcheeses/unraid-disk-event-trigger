@@ -31,6 +31,8 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 #htt-wrap .htt-pass-toggle { margin-left: -26px; background: none; border: none; cursor: pointer; padding: 2px 6px; line-height: 1; font-size: 14px; opacity: 0.7; }
 #htt-wrap .htt-pass-toggle:hover { opacity: 1; }
 #htt-wrap .proto-block.active { display: block; }
+#htt-wrap .htt-help { cursor: help; opacity: 0.7; }
+#htt-wrap .htt-help:hover { opacity: 1; }
 #htt-status { font-family: monospace; white-space: pre-wrap; font-size: 12px; max-height: 300px; overflow-y: auto; background: rgba(128,128,128,0.1); padding: 8px; }
 #htt-plugin-toggle { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; background: rgba(128,128,128,0.12); }
 #htt-plugin-toggle.enabled { background: rgba(46,160,67,0.15); }
@@ -185,12 +187,12 @@ function httRenderRules() {
             <div class="row">
                 <label>Turn ON at &ge;</label>
                 <input type="number" class="htt-on-temp" value="${rule.on_temp ?? 40}"> &deg;C
-                &nbsp;&nbsp;delay <input type="number" class="htt-on-delay" min="0" style="width:70px" value="${rule.on_delay_seconds ?? 0}" title="Only turn ON once the temperature has stayed at or above this threshold continuously for this many seconds. If it drops back below before the delay elapses, the ON command is never sent. 0 = send immediately."> sec
+                &nbsp;&nbsp;delay <input type="number" class="htt-on-delay" min="0" style="width:70px" value="${rule.on_delay_seconds ?? 0}"> sec <span class="htt-help" title="Only turn ON once the temperature has stayed at or above this threshold continuously for this many seconds. If it drops back below before the delay elapses, the ON command is never sent. 0 = send immediately.">&#9432;</span>
             </div>
             <div class="row">
                 <label>Turn OFF at &le;</label>
                 <input type="number" class="htt-off-temp" value="${rule.off_temp ?? 35}"> &deg;C
-                &nbsp;&nbsp;delay <input type="number" class="htt-off-delay" min="0" style="width:70px" value="${rule.off_delay_seconds ?? 0}" title="Only turn OFF once the temperature has stayed at or below this threshold continuously for this many seconds. If it rises back above before the delay elapses, the OFF command is never sent. 0 = send immediately."> sec
+                &nbsp;&nbsp;delay <input type="number" class="htt-off-delay" min="0" style="width:70px" value="${rule.off_delay_seconds ?? 0}"> sec <span class="htt-help" title="Only turn OFF once the temperature has stayed at or below this threshold continuously for this many seconds. If it rises back above before the delay elapses, the OFF command is never sent. 0 = send immediately.">&#9432;</span>
             </div>
             <div class="row">
                 <label>Also force ON during</label>
