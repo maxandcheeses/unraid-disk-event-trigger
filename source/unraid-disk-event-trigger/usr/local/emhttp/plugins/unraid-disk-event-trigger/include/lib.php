@@ -135,6 +135,9 @@ function htt_validate_config($config) {
             $errors[] = "$label: protocol must be 'http', 'mqtt', or 'webhook'";
         }
         if (isset($rule['http']) && !is_array($rule['http'])) $errors[] = "$label: http must be a mapping";
+        if (isset($rule['http']['state']) && !in_array($rule['http']['state'], ['on', 'off'], true)) {
+            $errors[] = "$label: http.state must be 'on' or 'off'";
+        }
         if (isset($rule['mqtt']) && !is_array($rule['mqtt'])) $errors[] = "$label: mqtt must be a mapping";
         if (isset($rule['mqtt']['tls']) && !is_bool($rule['mqtt']['tls'])) $errors[] = "$label: mqtt.tls must be true or false";
         if (isset($rule['mqtt']['insecure_tls']) && !is_bool($rule['mqtt']['insecure_tls'])) $errors[] = "$label: mqtt.insecure_tls must be true or false";
@@ -430,13 +433,18 @@ function htt_aggregate($temps, $mode) {
 }
 
 /** Send an HTTP command to a Tasmota device: base_url like http://192.168.1.50 */
-function htt_send_http($config, $rule, $on) {
+function htt_send_http($config, $rule) {
     $h = htt_resolve_protocol($config, $rule, 'http');
     $base = rtrim($h['base_url'] ?? '', '/');
     if ($base === '') return false;
     $idx = $h['device_index'] ?? '';
     $cmndPrefix = $idx !== '' ? "Power{$idx}" : 'Power';
-    $cmnd = $on ? "{$cmndPrefix}%20On" : "{$cmndPrefix}%20Off";
+    // 'state' is the Tasmota HTTP command itself (Power On/Off) - unlike
+    // MQTT/webhook, Tasmota's fixed query-string API needs to know which
+    // one to send, and falls back to the pre-v2026.08.03.22 rule-level
+    // action_direction for rules saved before this field existed.
+    $state = $h['state'] ?? ($rule['action_direction'] ?? 'on');
+    $cmnd = ($state !== 'off') ? "{$cmndPrefix}%20On" : "{$cmndPrefix}%20Off";
     $url = "$base/cm?cmnd=$cmnd";
     if (!empty($h['username'])) {
         $url .= '&user=' . urlencode($h['username']) . '&password=' . urlencode($h['password'] ?? '');
@@ -765,13 +773,14 @@ function htt_mqtt_len($len) {
     return $out;
 }
 
-function htt_send_mqtt($config, $rule, $on) {
+function htt_send_mqtt($config, $rule) {
     $m = htt_resolve_protocol($config, $rule, 'mqtt');
     $host = $m['host'] ?? '';
     if ($host === '') return false;
     $port = intval($m['port'] ?? 1883);
     $topic = $m['topic'] ?? '';
-    $payload = $m['payload'] ?? ($on ? 'ON' : 'OFF');
+    $payload = $m['payload'] ?? '';
+    if ($payload === '') $payload = 'ON';
     if ($topic === '') return false;
     $clientId = 'httrigger-' . substr(md5($rule['id'] . microtime()), 0, 8);
     $ok = htt_mqtt_publish($host, $port, $clientId, $m['username'] ?? '', $m['password'] ?? '', $topic, $payload, 5, !empty($m['tls']), !empty($m['insecure_tls']));
@@ -839,7 +848,7 @@ function htt_webhook_request($url, $method, $body, $headersRaw, $username, $pass
     return ['ok' => true, 'status' => $status, 'body' => $result, 'error' => ''];
 }
 
-function htt_send_webhook($config, $rule, $on) {
+function htt_send_webhook($config, $rule) {
     $w = htt_resolve_protocol($config, $rule, 'webhook');
     $url = trim($w['url'] ?? '');
     if ($url === '') return false;
@@ -880,17 +889,16 @@ function htt_query_webhook_state($config, $rule) {
 }
 
 /**
- * Fire a rule's configured action in its own direction. Each rule now
- * represents exactly one direction (on or off) rather than a paired
- * on/off action - a caller (poll cycle, manual Test button) never needs
- * to separately decide which way to fire.
+ * Fire a rule's configured action. Each protocol's own config fully
+ * describes what gets sent (HTTP's Power On/Off command, MQTT's topic +
+ * payload, webhook's fixed URL/method/body) - there's no separate rule-level
+ * on/off to resolve here.
  */
 function htt_send_command($config, $rule) {
-    $on = (($rule['action_direction'] ?? 'on') !== 'off');
     $protocol = $rule['protocol'] ?? 'http';
-    if ($protocol === 'mqtt') return htt_send_mqtt($config, $rule, $on);
-    if ($protocol === 'webhook') return htt_send_webhook($config, $rule, $on);
-    return htt_send_http($config, $rule, $on);
+    if ($protocol === 'mqtt') return htt_send_mqtt($config, $rule);
+    if ($protocol === 'webhook') return htt_send_webhook($config, $rule);
+    return htt_send_http($config, $rule);
 }
 
 /**
@@ -939,11 +947,6 @@ function htt_rule_conditions($rule) {
         'direction' => $rule['direction'] ?? 'on',
         'threshold' => $rule['threshold'] ?? 0,
     ]];
-}
-
-function htt_rule_action_direction($rule) {
-    if (isset($rule['action_direction'])) return $rule['action_direction'] === 'off' ? 'off' : 'on';
-    return ($rule['direction'] ?? 'on') === 'off' ? 'off' : 'on';
 }
 
 /**
@@ -1016,7 +1019,6 @@ function htt_run_cycle() {
     foreach ($config['rules'] as $rule) {
         if (empty($rule['enabled'])) continue;
         $id = $rule['id'];
-        $direction = htt_rule_action_direction($rule);
         $prevFired = !empty($state[$id]['fired']);
 
         // A rule fires once its conditions (evaluated left-to-right, each
@@ -1068,9 +1070,9 @@ function htt_run_cycle() {
             if (!empty($rule['force_resend'])) {
                 $ok = htt_send_command($config, $rule);
                 if ($ok) {
-                    htt_log("Rule '{$rule['name']}': $reason, re-asserted {$direction} (force resend)");
+                    htt_log("Rule '{$rule['name']}': $reason, re-asserted action (force resend)");
                 } else {
-                    htt_log("Rule '{$rule['name']}': $reason, force-resend of {$direction} FAILED, will retry next cycle");
+                    htt_log("Rule '{$rule['name']}': $reason, force-resend FAILED, will retry next cycle");
                 }
             }
             continue;
@@ -1083,7 +1085,7 @@ function htt_run_cycle() {
         if (!isset($state[$id]['pending_since'])) {
             $state[$id]['pending_since'] = time();
             if ($delaySec > 0) {
-                htt_log("Rule '{$rule['name']}': $reason, pending {$direction} (delay {$delaySec}s)");
+                htt_log("Rule '{$rule['name']}': $reason, pending (delay {$delaySec}s)");
             }
         }
         $delayElapsed = $delaySec <= 0 || (time() - $state[$id]['pending_since']) >= $delaySec;
@@ -1093,7 +1095,7 @@ function htt_run_cycle() {
         if ($ok) {
             $state[$id]['fired'] = true;
             unset($state[$id]['pending_since']);
-            htt_log("Rule '{$rule['name']}': $reason, fired {$direction}");
+            htt_log("Rule '{$rule['name']}': $reason, fired");
         } else {
             htt_log("Rule '{$rule['name']}': $reason, send FAILED, will retry next cycle");
         }

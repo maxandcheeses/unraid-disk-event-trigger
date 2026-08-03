@@ -129,9 +129,12 @@ const HTT_CSRF = '<?= htmlspecialchars($var['csrf_token'] ?? '', ENT_QUOTES) ?>'
 
 /**
  * Rules saved before multi-condition support stored a single condition
- * inline (trigger_type/disks/aggregate/direction/threshold) which doubled
- * as the action polarity too. Wrap those into the current conditions[] +
- * action_direction shape so the rest of the UI only deals with one shape.
+ * inline (trigger_type/disks/aggregate/direction/threshold). Rules saved
+ * before the rule-level Action dropdown was removed also stored a single
+ * on/off action_direction, which only ever mattered for Tasmota HTTP's
+ * Power On/Off command - migrate it into http.state so old HTTP rules keep
+ * sending the same command; MQTT/webhook rules already fully described
+ * their own command via topic+payload / URL+body and don't need it.
  */
 function httNormalizeRule(rule) {
     if (!rule.conditions || !rule.conditions.length) {
@@ -143,17 +146,16 @@ function httNormalizeRule(rule) {
             threshold: rule.threshold ?? 40,
         }];
     }
-    if (!rule.action_direction) rule.action_direction = rule.direction || 'on';
+    rule.http = rule.http || {};
+    if (!rule.http.state) rule.http.state = rule.action_direction || 'on';
     return rule;
 }
 
 function httBadgeHtml(rule) {
     const s = httLastState[rule.id];
-    const dir = rule.action_direction === 'off' ? 'off' : 'on';
     const fired = !!(s && s.fired);
-    const cls = fired ? dir : '';
-    const text = fired ? `Fired: ${dir.toUpperCase()}` : 'Idle';
-    return `<span class="htt-relay-badge ${cls}" data-rule-id="${rule.id||''}" data-direction="${dir}">${text}</span>`;
+    const text = fired ? 'Fired' : 'Idle';
+    return `<span class="htt-relay-badge ${fired?'on':''}" data-rule-id="${rule.id||''}">${text}</span>`;
 }
 
 /** Direction dropdown option labels, which depend on the trigger type. */
@@ -460,8 +462,6 @@ function httRenderRules() {
         const key = rule.id || ('idx' + i);
         const collapsed = key in httCollapsedOverride ? httCollapsedOverride[key] : (httRules.length > 1);
 
-        const direction = rule.action_direction === 'off' ? 'off' : 'on';
-
         const dirty = !rule.id || httRuleSnapshots[rule.id] !== JSON.stringify(rule);
 
         const box = document.createElement('div');
@@ -493,14 +493,6 @@ function httRenderRules() {
             <div class="htt-cond-results"></div>
             <hr style="border:none;border-top:1px solid #666;margin:12px 0">
             <div class="row">
-                <label>Action</label>
-                <select class="htt-action-direction">
-                    <option value="on" ${direction==='off'?'':'selected'}>Turn ON</option>
-                    <option value="off" ${direction==='off'?'selected':''}>Turn OFF</option>
-                </select>
-                <span class="htt-help" title="What the protocol action below does once all conditions above are simultaneously true.">&#9432;</span>
-            </div>
-            <div class="row">
                 <label>Delay</label>
                 <input type="number" class="htt-delay" min="0" style="width:70px" value="${rule.delay_seconds ?? 0}"> sec <span class="htt-help" title="Only fire once the conditions have held continuously (all at once) for this many seconds. If they revert before the delay elapses, the action is never sent. 0 = fire immediately.">&#9432;</span>
             </div>
@@ -518,6 +510,12 @@ function httRenderRules() {
                 </select>
             </div>
             <div class="proto-block htt-http-block ${rule.protocol!=='mqtt'&&rule.protocol!=='webhook'?'active':''}">
+                <div class="row"><label>Command</label>
+                    <select class="htt-http-state">
+                        <option value="on" ${rule.http?.state==='off'?'':'selected'}>Power On</option>
+                        <option value="off" ${rule.http?.state==='off'?'selected':''}>Power Off</option>
+                    </select>
+                </div>
                 <div class="row"><label>Connection</label><select class="htt-http-conn" onchange="httToggleRuleConn(this)">${httConnectionOptions('http', rule.http?.connection_id||'')}</select></div>
                 <div class="htt-http-connfields" style="display:${rule.http?.connection_id?'none':''}">
                 <div class="row"><label>Device base URL</label><input type="text" class="htt-http-url" value="${(rule.http?.base_url)||''}" placeholder="http://192.168.1.50"></div>
@@ -641,7 +639,7 @@ function httSaveRulesStructure() {
 
 function httAddRule() {
     httCollectRules(); // otherwise re-rendering every box would discard unsaved edits in any other rule
-    const newRule = { id: httUid(), name: 'New Rule', enabled: true, conditions: [{ trigger_type: 'temp', disks: ['all'], aggregate: 'max', direction: 'on', threshold: 40 }], action_direction: 'on', delay_seconds: 0, force_resend: false, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
+    const newRule = { id: httUid(), name: 'New Rule', enabled: true, conditions: [{ trigger_type: 'temp', disks: ['all'], aggregate: 'max', direction: 'on', threshold: 40 }], delay_seconds: 0, force_resend: false, protocol: 'http', http: { state: 'on' }, mqtt: {}, webhook: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
     httRulesStructureDirty = true;
@@ -701,11 +699,11 @@ function httCollectRuleFromBox(box, orig) {
         name: box.querySelector('.htt-name').value || 'Rule',
         enabled: box.querySelector('.htt-enabled').checked,
         conditions: conditions,
-        action_direction: box.querySelector('.htt-action-direction').value,
         delay_seconds: parseFloat(box.querySelector('.htt-delay').value) || 0,
         force_resend: box.querySelector('.htt-force-resend').checked,
         protocol: box.querySelector('.htt-protocol').value,
         http: {
+            state: box.querySelector('.htt-http-state').value,
             connection_id: box.querySelector('.htt-http-conn').value,
             base_url: box.querySelector('.htt-http-url').value,
             device_index: box.querySelector('.htt-http-idx').value,
@@ -915,14 +913,9 @@ function httLoadStatus() {
         httLastState = d.state || {};
         document.querySelectorAll('.htt-relay-badge').forEach(badge => {
             const s = httLastState[badge.dataset.ruleId];
-            const dir = badge.dataset.direction === 'off' ? 'off' : 'on';
-            badge.classList.remove('on', 'off');
-            if (s && s.fired) {
-                badge.classList.add(dir);
-                badge.textContent = `Fired: ${dir.toUpperCase()}`;
-            } else {
-                badge.textContent = 'Idle';
-            }
+            const fired = !!(s && s.fired);
+            badge.classList.toggle('on', fired);
+            badge.textContent = fired ? 'Fired' : 'Idle';
         });
     });
 }

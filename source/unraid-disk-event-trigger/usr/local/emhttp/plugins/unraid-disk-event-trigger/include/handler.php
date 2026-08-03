@@ -143,10 +143,16 @@ switch ($action) {
         if ($result['ok']) {
             htt_log("Device state check for rule '{$rule['name']}': raw='{$result['raw']}' -> " . ($result['state'] ?? 'unknown'));
             // Self-heal: sync this rule's "already fired" tracking to whether
-            // the device's actual reported state matches this rule's direction.
-            if (!empty($result['state']) && !empty($rule['id'])) {
+            // the device's actual reported state matches what this HTTP rule's
+            // command would set it to. Only HTTP rules have a rule-level
+            // on/off polarity to compare against - MQTT/webhook rules send
+            // whatever topic+payload or URL+body is configured, with no
+            // single on/off to check the report against.
+            if ($protocol === 'http' && !empty($result['state']) && !empty($rule['id'])) {
+                $h = htt_resolve_protocol($config, $rule, 'http');
+                $wantState = $h['state'] ?? ($rule['action_direction'] ?? 'on');
                 $state = htt_load_state();
-                $state[$rule['id']]['fired'] = ($result['state'] === htt_rule_action_direction($rule));
+                $state[$rule['id']]['fired'] = ($result['state'] === $wantState);
                 htt_save_state($state);
             }
         } else {

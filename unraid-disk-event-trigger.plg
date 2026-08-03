@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.22">
+<!ENTITY version   "2026.08.03.23">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "aced559530b3c99e064dc3a2b99c5678">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.23
+- **CHANGE**: removed the rule-level "Action" (Turn ON/Turn OFF) dropdown - it was a confusing extra step on top of each protocol's own config, and only Tasmota HTTP actually needed an on/off choice (MQTT and webhook already fully describe what they send via their topic+payload / URL+body). Tasmota HTTP rules now pick "Command: Power On/Power Off" directly within the HTTP section instead; existing rules migrate their old Action choice into that field automatically. The rule status badge is now a simple "Fired"/"Idle" instead of "Fired: ON/OFF" since there's no single rule-level polarity to label anymore.
+
 ###2026.08.03.22
 - Add: each rule now shows its own **Save &amp; Apply** button next to the reorder arrows whenever it has unsaved edits, and hides it again once saved (or once it matches what's on disk) - a quicker way to spot and save a changed rule than scrolling to the bottom of its editor.
 - **CHANGE**: adding, removing, duplicating, or reordering a rule no longer saves immediately - a "Save &amp; Apply (adding/removing/reordering rules)" button now appears next to "+ Add Rule" and must be clicked for those structural changes to actually take effect, matching how field edits already require an explicit Save.
