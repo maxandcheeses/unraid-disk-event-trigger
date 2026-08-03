@@ -357,10 +357,12 @@ function htt_query_mqtt_state($rule) {
 
     $payload = $result['payload'];
     $value = trim($payload);
-    $decoded = json_decode($payload, true);
-    if (is_array($decoded)) {
-        $key = $m['state_json_key'] ?? 'state';
-        if (array_key_exists($key, $decoded)) $value = $decoded[$key];
+    if (!empty($m['state_is_json'])) {
+        $decoded = json_decode($payload, true);
+        if (is_array($decoded)) {
+            $key = $m['state_json_key'] ?? 'state';
+            if (array_key_exists($key, $decoded)) $value = $decoded[$key];
+        }
     }
 
     $onPayload = trim($m['on_payload'] ?? 'ON');

@@ -192,7 +192,8 @@ function httRenderRules() {
                 <div class="row"><label>OFF topic</label><input type="text" class="htt-mqtt-offtopic" value="${(rule.mqtt?.off_topic)||''}" placeholder="leave blank to reuse ON topic"></div>
                 <div class="row"><label>OFF payload</label><input type="text" class="htt-mqtt-offpayload" value="${(rule.mqtt?.off_payload)||'OFF'}"></div>
                 <div class="row"><label>State topic (optional)</label><input type="text" class="htt-mqtt-statetopic" value="${(rule.mqtt?.state_topic)||''}" placeholder="zigbee2mqtt/plug (device's own state topic, not /set)"></div>
-                <div class="row"><label>State JSON key</label><input type="text" class="htt-mqtt-statekey" value="${(rule.mqtt?.state_json_key)||'state'}" placeholder="state"></div>
+                <div class="row"><label>Payload is JSON</label><label style="min-width:auto"><input type="checkbox" class="htt-mqtt-statejson" onchange="this.closest('.row').nextElementSibling.style.display=this.checked?'':'none'" ${rule.mqtt?.state_is_json?'checked':''}> parse as JSON, e.g. zigbee2mqtt's {"state":"ON"} (leave unchecked to compare the raw payload directly)</label></div>
+                <div class="row" style="display:${rule.mqtt?.state_is_json?'':'none'}"><label>State JSON key</label><input type="text" class="htt-mqtt-statekey" value="${(rule.mqtt?.state_json_key)||'state'}" placeholder="state"></div>
                 <div class="row"><button type="button" onclick="httCheckState(${i})">Check Device State</button></div>
             </div>
             </div>
@@ -265,6 +266,7 @@ function httCollectRules() {
                 off_topic: box.querySelector('.htt-mqtt-offtopic').value,
                 off_payload: box.querySelector('.htt-mqtt-offpayload').value,
                 state_topic: box.querySelector('.htt-mqtt-statetopic').value,
+                state_is_json: box.querySelector('.htt-mqtt-statejson').checked,
                 state_json_key: box.querySelector('.htt-mqtt-statekey').value || 'state',
             },
         });
