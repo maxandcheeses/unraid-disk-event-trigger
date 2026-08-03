@@ -12,7 +12,7 @@
 
 <CHANGES>
 ###2026.08.02
-- Initial release: SMART disk temp monitoring with HTTP/MQTT Tasmota &amp; zigbee2mqtt triggers.
+- Initial release: SMART disk temp monitoring with HTTP/MQTT (Tasmota &amp; zigbee2mqtt) triggers, MQTT username/password auth, and optional forced-on triggers during parity checks and array rebuilds.
 </CHANGES>
 
 <FILE Name="/boot/config/plugins/&name;/&name;.txz" Run="upgradepkg --install-new">
