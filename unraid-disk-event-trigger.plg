@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02.6">
+<!ENTITY version   "2026.08.02.7">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "9a86fb293899d1f76bfe8b7e52e002e8">
+<!ENTITY srcMD5     "007d1f458a3b7222924bc99aa33a8203">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.7
+- Fix: plugin description didn't show up on Settings &gt; Plugins. Unraid's native Plugins page (ShowPlugins.php) reads README.md directly off disk from the installed plugin directory - a previous release wrongly excluded it from the package. Now included again.
+
 ###2026.08.02.6
 - Fix: "tracked state" badge got reset to unknown whenever a rule was folded/unfolded; now cached and preserved across re-renders.
 - Change: badge now shows only "State: ON/OFF/unknown", no temperature, with a clearer visual style.

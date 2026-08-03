@@ -19,7 +19,10 @@ if command -v makepkg >/dev/null 2>&1; then
 else
     echo "makepkg not found, falling back to plain tar+xz (fine for local testing," \
          "but prefer running this on Unraid/Slackware for a proper package)."
-    find . -mindepth 1 ! -name README.md ! -name '.DS_Store' ! -name '._*' | sed 's|^\./||' | tar --no-recursion -cJf "$OUT" -T -
+    # README.md IS packaged: Unraid's native Plugins page (ShowPlugins.php)
+    # reads plugins/<name>/README.md straight off disk for the description
+    # shown on the Plugins tab, so it must actually be installed.
+    find . -mindepth 1 ! -name '.DS_Store' ! -name '._*' | sed 's|^\./||' | tar --no-recursion -cJf "$OUT" -T -
 fi
 cd "$ROOT"
 
