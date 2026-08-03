@@ -3,6 +3,7 @@
 # with its MD5. Run on Unraid (has makepkg) or any Linux/macOS box (falls
 # back to plain tar).
 set -euo pipefail
+export COPYFILE_DISABLE=1  # macOS: don't emit ._* AppleDouble metadata files into the tar
 
 NAME="unraid-disk-event-trigger"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -18,7 +19,7 @@ if command -v makepkg >/dev/null 2>&1; then
 else
     echo "makepkg not found, falling back to plain tar+xz (fine for local testing," \
          "but prefer running this on Unraid/Slackware for a proper package)."
-    find . -mindepth 1 | sed 's|^\./||' | tar -cJf "$OUT" -T -
+    find . -mindepth 1 ! -name README.md ! -name '.DS_Store' ! -name '._*' | sed 's|^\./||' | tar --no-recursion -cJf "$OUT" -T -
 fi
 cd "$ROOT"
 

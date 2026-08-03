@@ -21,6 +21,7 @@ function htt_log($msg) {
 
 function htt_default_config() {
     return [
+        'enabled' => true,
         'poll_interval' => 60,
         'rules' => [],
     ];
@@ -40,6 +41,58 @@ function htt_load_config() {
 function htt_save_config($config) {
     if (!is_dir(HTT_CFG_DIR)) mkdir(HTT_CFG_DIR, 0755, true);
     file_put_contents(HTT_RULES_FILE, json_encode($config, JSON_PRETTY_PRINT));
+}
+
+/**
+ * Minimal dependency-free array -> YAML dumper, sufficient for this
+ * plugin's own config shape (nested assoc arrays, lists, scalars). Not a
+ * general-purpose YAML emitter - just enough to let users back up/inspect
+ * their rules.json in a friendlier format. Avoids requiring the PHP `yaml`
+ * extension, which Unraid doesn't ship by default.
+ */
+function htt_to_yaml($data, $indent = 0) {
+    $pad = str_repeat('  ', $indent);
+    $out = '';
+    $isList = is_array($data) && array_keys($data) === range(0, count($data) - 1);
+
+    if ($isList) {
+        if (empty($data)) return "{$pad}[]\n";
+        foreach ($data as $v) {
+            if (is_array($v)) {
+                $out .= "{$pad}-\n" . htt_to_yaml($v, $indent + 1);
+            } else {
+                $out .= "{$pad}- " . htt_yaml_scalar($v) . "\n";
+            }
+        }
+        return $out;
+    }
+
+    if (is_array($data)) {
+        if (empty($data)) return "{$pad}{}\n";
+        foreach ($data as $k => $v) {
+            if (is_array($v)) {
+                $sub = htt_to_yaml($v, $indent + 1);
+                $empty = (is_array($v) && empty($v));
+                $out .= "{$pad}{$k}:" . ($empty ? " " . trim($sub) . "\n" : "\n" . $sub);
+            } else {
+                $out .= "{$pad}{$k}: " . htt_yaml_scalar($v) . "\n";
+            }
+        }
+        return $out;
+    }
+
+    return "{$pad}" . htt_yaml_scalar($data) . "\n";
+}
+
+function htt_yaml_scalar($v) {
+    if ($v === null) return 'null';
+    if (is_bool($v)) return $v ? 'true' : 'false';
+    if (is_int($v) || is_float($v)) return (string)$v;
+    $s = (string)$v;
+    if ($s === '' || preg_match('/^[\s]|[\s]$|[:#\[\]{}&*!|>\'"%@`]|^(true|false|null|yes|no|on|off|~)$/i', $s) || is_numeric($s)) {
+        return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $s) . '"';
+    }
+    return $s;
 }
 
 function htt_load_state() {
@@ -461,6 +514,8 @@ function htt_array_status() {
  */
 function htt_run_cycle() {
     $config = htt_load_config();
+    if (!($config['enabled'] ?? true)) return; // plugin disabled at the top level - skip the whole cycle
+
     $disks = htt_list_disks();
     $state = htt_load_state();
     $array = htt_array_status();

@@ -10,6 +10,11 @@ switch ($action) {
     case 'get_config':
         respond(htt_load_config());
 
+    case 'get_config_yaml':
+        header('Content-Type: text/plain; charset=utf-8');
+        echo htt_to_yaml(htt_load_config());
+        exit;
+
     case 'save_config':
         $raw = $_POST['config'] ?? '';
         $config = json_decode($raw, true);
@@ -19,7 +24,8 @@ switch ($action) {
         }
         unset($rule);
         htt_save_config($config);
-        shell_exec('/etc/rc.d/rc.unraid-disk-event-trigger restart > /dev/null 2>&1 &');
+        $cmd = ($config['enabled'] ?? true) ? 'restart' : 'stop';
+        shell_exec('/etc/rc.d/rc.unraid-disk-event-trigger ' . $cmd . ' > /dev/null 2>&1 &');
         respond(['ok' => true]);
 
     case 'get_status':

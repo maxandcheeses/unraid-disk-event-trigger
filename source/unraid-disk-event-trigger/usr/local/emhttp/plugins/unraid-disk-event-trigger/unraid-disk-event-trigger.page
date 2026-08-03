@@ -17,9 +17,10 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 #htt-wrap .rule-box.collapsed .rule-body { display: none; }
 #htt-wrap .htt-rule-toggle { cursor: pointer; display: inline-block; width: 16px; text-align: center; user-select: none; }
 #htt-wrap .htt-enabled-label { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; min-width: 0; }
-#htt-wrap .htt-relay-badge { font-size: 11px; font-weight: normal; padding: 2px 8px; border-radius: 10px; background: rgba(128,128,128,0.2); margin-left: 8px; }
-#htt-wrap .htt-relay-badge.on { background: rgba(80,180,80,0.35); }
-#htt-wrap .htt-relay-badge.off { background: rgba(180,80,80,0.25); }
+#htt-wrap .htt-relay-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; padding: 3px 10px 3px 8px; border-radius: 12px; background: rgba(128,128,128,0.18); color: inherit; margin-left: 8px; }
+#htt-wrap .htt-relay-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.55; }
+#htt-wrap .htt-relay-badge.on { background: rgba(46,160,67,0.18); color: #2ea043; }
+#htt-wrap .htt-relay-badge.off { background: rgba(200,60,60,0.15); color: #cf5b5b; }
 #htt-wrap label { display: inline-block; min-width: 130px; }
 #htt-wrap input[type=text], #htt-wrap input[type=number], #htt-wrap input[type=password] { width: 220px; }
 #htt-wrap .row { margin-bottom: 6px; }
@@ -31,9 +32,19 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 #htt-wrap .htt-pass-toggle:hover { opacity: 1; }
 #htt-wrap .proto-block.active { display: block; }
 #htt-status { font-family: monospace; white-space: pre-wrap; font-size: 12px; max-height: 300px; overflow-y: auto; background: rgba(128,128,128,0.1); padding: 8px; }
+#htt-plugin-toggle { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; background: rgba(128,128,128,0.12); }
+#htt-plugin-toggle.enabled { background: rgba(46,160,67,0.15); }
+#htt-plugin-toggle.disabled { background: rgba(200,60,60,0.15); }
+#htt-plugin-toggle label { min-width: auto; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+#htt-plugin-toggle input[type=checkbox] { width: 16px; height: 16px; }
 </style>
 
 <div id="htt-wrap">
+  <div id="htt-plugin-toggle">
+    <label><input type="checkbox" id="htt-plugin-enabled" <?= ($config['enabled'] ?? true) ? 'checked' : '' ?> onchange="httTogglePluginEnabled(this)"> Plugin enabled</label>
+    <span id="htt-plugin-toggle-note">When disabled, the background poller is stopped entirely - nothing is monitored and no commands are sent.</span>
+  </div>
+
   <h3>Disk Temperatures</h3>
   <table>
     <thead><tr><th>Disk</th><th>Device</th><th>Spun down</th><th>Temp (&deg;C)</th></tr></thead>
@@ -74,6 +85,13 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
   <button type="button" onclick="httSaveConfig()">Save &amp; Apply</button>
   <span id="htt-save-msg"></span>
 
+  <h3>Backup</h3>
+  <div class="row">
+    <button type="button" onclick="httShowYaml()">View as YAML</button>
+    <a id="htt-yaml-download" href="#" style="display:none;margin-left:10px">Download rules.yaml</a>
+  </div>
+  <textarea id="htt-yaml-view" readonly style="display:none;width:100%;height:260px;font-family:monospace;font-size:12px;margin-top:8px" onclick="this.select()"></textarea>
+
   <h3>Log</h3>
   <button type="button" onclick="httLoadLog()">Refresh Log</button>
   <button type="button" onclick="httClearLog()">Clear Log</button>
@@ -83,7 +101,15 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 <script>
 const HTT_DISKS = <?= json_encode(array_values($disks)) ?>;
 let httRules = <?= json_encode($config['rules']) ?>;
+let httLastState = {}; // ruleId -> {relay, last_temp, ...}, cached across re-renders so folding doesn't blank the badge
 const HTT_CSRF = '<?= htmlspecialchars($var['csrf_token'] ?? '', ENT_QUOTES) ?>';
+
+function httBadgeHtml(ruleId) {
+    const s = httLastState[ruleId];
+    const cls = (s && s.relay) ? s.relay : '';
+    const text = (s && s.relay) ? `State: ${s.relay.toUpperCase()}` : 'State: unknown';
+    return `<span class="htt-relay-badge ${cls}" data-rule-id="${ruleId||''}">${text}</span>`;
+}
 const HTT_ENDPOINT = '/plugins/unraid-disk-event-trigger/include/handler.php';
 
 function httPost(body) {
@@ -136,7 +162,7 @@ function httRenderRules() {
                 <span class="htt-rule-toggle" onclick="httToggleCollapse(${i})">${collapsed ? '&#9656;' : '&#9662;'}</span>
                 <label class="htt-enabled-label"><input type="checkbox" ${rule.enabled ? 'checked' : ''} class="htt-enabled"> Enabled</label>
                 <input type="text" class="htt-name" value="${(rule.name||'').replace(/"/g,'&quot;')}" placeholder="Rule name" style="width:200px">
-                <span class="htt-relay-badge" data-rule-id="${rule.id||''}">tracked state: unknown</span>
+                ${httBadgeHtml(rule.id)}
                 <button type="button" onclick="httRemoveRule(${i})" style="float:right">Remove</button>
                 <button type="button" onclick="httTestRule(${i}, true)" style="float:right;margin-right:6px">Test ON</button>
                 <button type="button" onclick="httTestRule(${i}, false)" style="float:right;margin-right:6px">Test OFF</button>
@@ -169,7 +195,7 @@ function httRenderRules() {
             </div>
             <div class="row">
                 <label>Force resend</label>
-                <label style="min-width:auto"><input type="checkbox" class="htt-force-resend" ${rule.force_resend?'checked':''}> re-send the ON/OFF command every poll cycle, even if unchanged (guards against the device drifting out of sync with what we last told it)</label>
+                <label style="min-width:auto"><input type="checkbox" class="htt-force-resend" ${rule.force_resend?'checked':''}> re-send the ON/OFF command every poll cycle, even if unchanged</label>
             </div>
             <div class="row">
                 <label>Protocol</label>
@@ -281,7 +307,7 @@ function httCollectRules() {
 
 function httSaveConfig() {
     const rules = httCollectRules();
-    const config = { poll_interval: parseInt(document.getElementById('htt-poll-interval').value) || 60, rules: rules };
+    const config = { enabled: document.getElementById('htt-plugin-enabled').checked, poll_interval: parseInt(document.getElementById('htt-poll-interval').value) || 60, rules: rules };
     httPost('action=save_config&config=' + encodeURIComponent(JSON.stringify(config)))
         .then(r => r.json()).then(d => {
             document.getElementById('htt-save-msg').textContent = d.ok ? ' Saved and applied.' : ' Error saving: ' + (d.error || 'unknown error');
@@ -322,6 +348,31 @@ function httServiceControl(cmd) {
     httPost('action=service_control&cmd=' + cmd).then(() => setTimeout(httLoadStatus, 1500));
 }
 
+function httTogglePluginEnabled(checkbox) {
+    const config = { enabled: checkbox.checked, poll_interval: parseInt(document.getElementById('htt-poll-interval').value) || 60, rules: httCollectRules() };
+    httPost('action=save_config&config=' + encodeURIComponent(JSON.stringify(config)))
+        .then(r => r.json()).then(d => {
+            const box = document.getElementById('htt-plugin-toggle');
+            box.classList.remove('enabled', 'disabled');
+            box.classList.add(checkbox.checked ? 'enabled' : 'disabled');
+            if (!d.ok) alert('Failed to save: ' + (d.error || 'unknown error'));
+        });
+}
+
+function httShowYaml() {
+    fetch(HTT_ENDPOINT + '?action=get_config_yaml', { credentials: 'same-origin' }).then(r => r.text()).then(yaml => {
+        const ta = document.getElementById('htt-yaml-view');
+        ta.value = yaml;
+        ta.style.display = '';
+        ta.select();
+        const link = document.getElementById('htt-yaml-download');
+        const blob = new Blob([yaml], { type: 'text/yaml' });
+        link.href = URL.createObjectURL(blob);
+        link.download = 'unraid-disk-event-trigger-rules.yaml';
+        link.style.display = '';
+    });
+}
+
 function httLoadStatus() {
     fetch(HTT_ENDPOINT + '?action=get_status', { credentials: 'same-origin' }).then(r => r.json()).then(d => {
         document.getElementById('htt-service-status').textContent = d.service_status;
@@ -334,16 +385,15 @@ function httLoadStatus() {
         d.disks.forEach(disk => {
             tbody.innerHTML += `<tr><td>${disk.name}</td><td>${disk.device}</td><td>${disk.spundown?'yes':'no'}</td><td>${disk.spundown?'-':(disk.live_temp ?? '?')}</td></tr>`;
         });
-        const stateByRuleId = d.state || {};
+        httLastState = d.state || {};
         document.querySelectorAll('.htt-relay-badge').forEach(badge => {
-            const s = stateByRuleId[badge.dataset.ruleId];
+            const s = httLastState[badge.dataset.ruleId];
             badge.classList.remove('on', 'off');
             if (!s || !s.relay) {
-                badge.textContent = 'tracked state: unknown';
+                badge.textContent = 'State: unknown';
             } else {
                 badge.classList.add(s.relay);
-                const tempStr = (s.last_temp !== undefined && s.last_temp !== null) ? `, ${s.last_temp}°C` : '';
-                badge.textContent = `tracked state: ${s.relay.toUpperCase()}${tempStr}`;
+                badge.textContent = `State: ${s.relay.toUpperCase()}`;
             }
         });
     });

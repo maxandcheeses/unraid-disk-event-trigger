@@ -2,15 +2,22 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02.5">
+<!ENTITY version   "2026.08.02.6">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "d8b220e049b4a23167085bfa1dd95730">
+<!ENTITY srcMD5     "4c91d3e1e7e903e96b501a3afa7a6d27">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.6
+- Fix: "tracked state" badge got reset to unknown whenever a rule was folded/unfolded; now cached and preserved across re-renders.
+- Change: badge now shows only "State: ON/OFF/unknown", no temperature, with a clearer visual style.
+- Add: top-of-page "Plugin enabled" toggle - when off, the background poller process itself is stopped entirely (not just idled), including across reboots.
+- Add: "View as YAML" / download for the current config, for easy backup.
+- Fixed the package build to not include README.md or macOS AppleDouble metadata junk files.
+
 ###2026.08.02.5
 - Fix: Check Device State's MQTT read could time out for devices/bridges (e.g. zigbee2mqtt) that don't retain state and only report on change. Now publishes a "&lt;state_topic&gt;/get" trigger before waiting, prompting an immediate report. Verified against a real Sonoff ZBMicro plug via zigbee2mqtt.
 - Add: each rule now shows a live "tracked state" badge (ON/OFF/unknown, with last known temp), refreshed automatically and immediately after Check Device State.
@@ -54,7 +61,11 @@ if [ ! -f /boot/config/plugins/&name;/rules.json ]; then
   printf '%s\n' '{' '    "poll_interval": 60,' '    "rules": []' '}' > /boot/config/plugins/&name;/rules.json
 fi
 chmod +x /etc/rc.d/rc.unraid-disk-event-trigger
-/etc/rc.d/rc.unraid-disk-event-trigger restart
+if grep -q '"enabled": *false' /boot/config/plugins/&name;/rules.json 2>/dev/null; then
+  echo "Plugin is disabled in saved config, not starting the poller."
+else
+  /etc/rc.d/rc.unraid-disk-event-trigger restart
+fi
 echo "unraid-disk-event-trigger installed."
 </INLINE>
 </FILE>
