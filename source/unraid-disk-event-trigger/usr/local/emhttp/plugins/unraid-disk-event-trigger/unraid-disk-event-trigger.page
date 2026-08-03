@@ -164,6 +164,10 @@ function httRenderRules() {
                 <label style="min-width:auto"><input type="checkbox" class="htt-force-rebuild" ${rule.trigger_on_rebuild?'checked':''}> array/data rebuild</label>
             </div>
             <div class="row">
+                <label>Force resend</label>
+                <label style="min-width:auto"><input type="checkbox" class="htt-force-resend" ${rule.force_resend?'checked':''}> re-send the ON/OFF command every poll cycle, even if unchanged (guards against the device drifting out of sync with what we last told it)</label>
+            </div>
+            <div class="row">
                 <label>Protocol</label>
                 <select class="htt-protocol" onchange="httToggleProto(this)">
                     <option value="http" ${rule.protocol!=='mqtt'?'selected':''}>Tasmota HTTP</option>
@@ -175,6 +179,7 @@ function httRenderRules() {
                 <div class="row"><label>Relay index (optional)</label><input type="text" class="htt-http-idx" value="${(rule.http?.device_index)||''}" placeholder="e.g. 2 for Power2"></div>
                 <div class="row"><label>Username</label><input type="text" class="htt-http-user" value="${(rule.http?.username)||''}"></div>
                 <div class="row"><label>Password</label>${httPassField('htt-http-pass', (rule.http?.password)||'')}</div>
+                <div class="row"><button type="button" onclick="httCheckState(${i})">Check Device State</button></div>
             </div>
             <div class="proto-block htt-mqtt-block ${rule.protocol==='mqtt'?'active':''}">
                 <div class="row"><label>Broker host</label><input type="text" class="htt-mqtt-host" value="${(rule.mqtt?.host)||''}" placeholder="192.168.1.10"></div>
@@ -186,6 +191,9 @@ function httRenderRules() {
                 <div class="row"><label>ON payload</label><input type="text" class="htt-mqtt-onpayload" value="${(rule.mqtt?.on_payload)||'ON'}"></div>
                 <div class="row"><label>OFF topic</label><input type="text" class="htt-mqtt-offtopic" value="${(rule.mqtt?.off_topic)||''}" placeholder="leave blank to reuse ON topic"></div>
                 <div class="row"><label>OFF payload</label><input type="text" class="htt-mqtt-offpayload" value="${(rule.mqtt?.off_payload)||'OFF'}"></div>
+                <div class="row"><label>State topic (optional)</label><input type="text" class="htt-mqtt-statetopic" value="${(rule.mqtt?.state_topic)||''}" placeholder="zigbee2mqtt/plug (device's own state topic, not /set)"></div>
+                <div class="row"><label>State JSON key</label><input type="text" class="htt-mqtt-statekey" value="${(rule.mqtt?.state_json_key)||'state'}" placeholder="state"></div>
+                <div class="row"><button type="button" onclick="httCheckState(${i})">Check Device State</button></div>
             </div>
             </div>
         `;
@@ -239,6 +247,7 @@ function httCollectRules() {
             off_temp: parseFloat(box.querySelector('.htt-off-temp').value),
             trigger_on_parity_check: box.querySelector('.htt-force-parity').checked,
             trigger_on_rebuild: box.querySelector('.htt-force-rebuild').checked,
+            force_resend: box.querySelector('.htt-force-resend').checked,
             protocol: box.querySelector('.htt-protocol').value,
             http: {
                 base_url: box.querySelector('.htt-http-url').value,
@@ -255,6 +264,8 @@ function httCollectRules() {
                 on_payload: box.querySelector('.htt-mqtt-onpayload').value,
                 off_topic: box.querySelector('.htt-mqtt-offtopic').value,
                 off_payload: box.querySelector('.htt-mqtt-offpayload').value,
+                state_topic: box.querySelector('.htt-mqtt-statetopic').value,
+                state_json_key: box.querySelector('.htt-mqtt-statekey').value || 'state',
             },
         });
     });
@@ -287,6 +298,17 @@ function httTestMqtt(i) {
     const rule = httRules[i];
     httPost('action=test_mqtt&rule=' + encodeURIComponent(JSON.stringify(rule)))
         .then(r => r.json()).then(d => alert(d.ok ? 'MQTT connection OK' : 'MQTT connection failed: ' + (d.error || 'unknown error')));
+}
+
+function httCheckState(i) {
+    httCollectRules();
+    const rule = httRules[i];
+    httPost('action=get_device_state&rule=' + encodeURIComponent(JSON.stringify(rule)))
+        .then(r => r.json()).then(d => {
+            if (!d.ok) { alert('Could not read device state: ' + (d.error || 'unknown error')); return; }
+            const stateStr = d.state ? d.state.toUpperCase() : 'unrecognized';
+            alert('Device reports: ' + stateStr + '\nRaw: ' + d.raw + '\n\n(internal tracked state has been synced to match)');
+        });
 }
 
 function httServiceControl(cmd) {

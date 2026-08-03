@@ -55,6 +55,14 @@ switch ($action) {
         $on = ($_POST['on'] ?? '1') === '1';
         if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
         $ok = htt_send_command($rule, $on);
+        if ($ok && !empty($rule['id'])) {
+            // Keep the automatic poll cycle's hysteresis state in sync with
+            // manual test sends, otherwise a manual Test OFF leaves the
+            // cycle thinking the relay is still on and it never re-fires.
+            $state = htt_load_state();
+            $state[$rule['id']]['relay'] = $on ? 'on' : 'off';
+            htt_save_state($state);
+        }
         respond(['ok' => $ok]);
 
     case 'test_mqtt':
@@ -63,6 +71,23 @@ switch ($action) {
         $m = $rule['mqtt'] ?? [];
         $result = htt_mqtt_test_connection($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '');
         htt_log("MQTT connection test for rule '{$rule['name']}': " . ($result['ok'] ? 'OK' : $result['error']));
+        respond($result);
+
+    case 'get_device_state':
+        $rule = json_decode($_POST['rule'] ?? '', true);
+        if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
+        $result = (($rule['protocol'] ?? 'http') === 'mqtt') ? htt_query_mqtt_state($rule) : htt_query_http_state($rule);
+        if ($result['ok']) {
+            htt_log("Device state check for rule '{$rule['name']}': raw='{$result['raw']}' -> " . ($result['state'] ?? 'unknown'));
+            // Self-heal: sync our tracked hysteresis state to what the device actually reports.
+            if (!empty($result['state']) && !empty($rule['id'])) {
+                $state = htt_load_state();
+                $state[$rule['id']]['relay'] = $result['state'];
+                htt_save_state($state);
+            }
+        } else {
+            htt_log("Device state check for rule '{$rule['name']}' FAILED: {$result['error']}");
+        }
         respond($result);
 
     default:

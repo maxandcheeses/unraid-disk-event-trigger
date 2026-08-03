@@ -243,6 +243,138 @@ function htt_mqtt_test_connection($host, $port, $username, $password, $timeout =
     return ['ok' => $conn['ok'], 'error' => $conn['error']];
 }
 
+/**
+ * Query a Tasmota device's actual current relay state via its HTTP status
+ * API (does not change anything). Returns
+ * ['ok'=>bool, 'state'=>'on'|'off'|null, 'raw'=>string, 'error'=>string].
+ */
+function htt_query_http_state($rule) {
+    $base = rtrim($rule['http']['base_url'] ?? '', '/');
+    if ($base === '') return ['ok' => false, 'state' => null, 'raw' => '', 'error' => 'no base URL configured'];
+    $idx = $rule['http']['device_index'] ?? '';
+    $cmndPrefix = $idx !== '' ? "Power{$idx}" : 'Power';
+    $url = "$base/cm?cmnd=" . urlencode($cmndPrefix);
+    if (!empty($rule['http']['username'])) {
+        $url .= '&user=' . urlencode($rule['http']['username']) . '&password=' . urlencode($rule['http']['password'] ?? '');
+    }
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 8,
+        CURLOPT_CONNECTTIMEOUT => 5,
+    ]);
+    $result = curl_exec($ch);
+    $err = curl_error($ch);
+    curl_close($ch);
+    if ($result === false) {
+        return ['ok' => false, 'state' => null, 'raw' => '', 'error' => "request failed: $err"];
+    }
+    $state = null;
+    $data = json_decode($result, true);
+    if (is_array($data)) {
+        foreach ($data as $k => $v) {
+            if (stripos($k, 'POWER') === 0 && is_string($v)) {
+                $state = strcasecmp($v, 'ON') === 0 ? 'on' : (strcasecmp($v, 'OFF') === 0 ? 'off' : null);
+                break;
+            }
+        }
+    }
+    return ['ok' => true, 'state' => $state, 'raw' => $result, 'error' => ''];
+}
+
+/**
+ * Subscribe (QoS0) and wait for a single message on an MQTT state topic,
+ * without publishing anything. Returns
+ * ['ok'=>bool, 'payload'=>string|null, 'topic'=>string|null, 'error'=>string].
+ */
+function htt_mqtt_read_one($host, $port, $username, $password, $topic, $timeout = 4) {
+    if ($host === '') return ['ok' => false, 'payload' => null, 'topic' => null, 'error' => 'no broker host configured'];
+    if ($topic === '') return ['ok' => false, 'payload' => null, 'topic' => null, 'error' => 'no state topic configured'];
+
+    $clientId = 'httrigger-state-' . substr(md5(microtime()), 0, 8);
+    $conn = htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout);
+    if (!$conn['ok']) return ['ok' => false, 'payload' => null, 'topic' => null, 'error' => $conn['error']];
+    $sock = $conn['sock'];
+    stream_set_timeout($sock, $timeout);
+
+    $body = pack('n', 1) . htt_mqtt_str($topic) . chr(0); // SUBSCRIBE, packet id 1, QoS 0
+    fwrite($sock, chr(0x82) . htt_mqtt_len(strlen($body)) . $body);
+
+    $payload = null;
+    $recvTopic = null;
+    $deadline = microtime(true) + $timeout;
+
+    while (microtime(true) < $deadline) {
+        $header = fread($sock, 1);
+        if ($header === false || $header === '') { usleep(50000); continue; }
+        $type = ord($header) >> 4;
+
+        $multiplier = 1; $value = 0; $byte = 0;
+        do {
+            $b = fread($sock, 1);
+            if ($b === false || $b === '') break 2;
+            $byte = ord($b);
+            $value += ($byte & 127) * $multiplier;
+            $multiplier *= 128;
+        } while ($byte & 128);
+        $remaining = $value;
+
+        $data = '';
+        while (strlen($data) < $remaining && microtime(true) < $deadline) {
+            $chunk = fread($sock, $remaining - strlen($data));
+            if ($chunk === false || $chunk === '') { usleep(20000); continue; }
+            $data .= $chunk;
+        }
+
+        if ($type === 3 && strlen($data) >= 2) { // PUBLISH
+            $topicLen = unpack('n', substr($data, 0, 2))[1];
+            $recvTopic = substr($data, 2, $topicLen);
+            $payload = substr($data, 2 + $topicLen);
+            break;
+        }
+        // else SUBACK or other control packet - keep waiting for PUBLISH
+    }
+
+    fwrite($sock, chr(0xE0) . chr(0x00)); // DISCONNECT
+    fclose($sock);
+
+    if ($payload === null) {
+        return ['ok' => false, 'payload' => null, 'topic' => null, 'error' => 'no message received on that topic within ' . $timeout . 's (device offline, wrong topic, or no retained value)'];
+    }
+    return ['ok' => true, 'payload' => $payload, 'topic' => $recvTopic, 'error' => ''];
+}
+
+/**
+ * Query a rule's MQTT state topic and interpret on/off. The payload may be
+ * a bare string ("ON"/"OFF") or JSON (e.g. zigbee2mqtt's {"state":"ON"});
+ * state_json_key names which JSON field to read (default "state").
+ */
+function htt_query_mqtt_state($rule) {
+    $m = $rule['mqtt'] ?? [];
+    $topic = $m['state_topic'] ?? '';
+    $result = htt_mqtt_read_one($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '', $topic);
+    if (!$result['ok']) return ['ok' => false, 'state' => null, 'raw' => '', 'error' => $result['error']];
+
+    $payload = $result['payload'];
+    $value = trim($payload);
+    $decoded = json_decode($payload, true);
+    if (is_array($decoded)) {
+        $key = $m['state_json_key'] ?? 'state';
+        if (array_key_exists($key, $decoded)) $value = $decoded[$key];
+    }
+
+    $onPayload = trim($m['on_payload'] ?? 'ON');
+    $offPayload = trim($m['off_payload'] ?? 'OFF');
+    $state = null;
+    if (strcasecmp((string)$value, $onPayload) === 0 || strcasecmp((string)$value, 'ON') === 0 || strcasecmp((string)$value, 'true') === 0) {
+        $state = 'on';
+    } elseif (strcasecmp((string)$value, $offPayload) === 0 || strcasecmp((string)$value, 'OFF') === 0 || strcasecmp((string)$value, 'false') === 0) {
+        $state = 'off';
+    }
+
+    return ['ok' => true, 'state' => $state, 'raw' => $payload, 'error' => ''];
+}
+
 function htt_mqtt_str($s) { return pack('n', strlen($s)) . $s; }
 
 function htt_mqtt_len($len) {
@@ -348,17 +480,19 @@ function htt_run_cycle() {
 
         $onTemp = floatval($rule['on_temp']);
         $offTemp = floatval($rule['off_temp']);
-        $newRelay = $prev;
+        // Desired relay state per current thresholds; within the hysteresis
+        // band (between off_temp and on_temp) carry forward the last decision.
+        $desiredRelay = $prev;
         $reason = "temp={$agg}C";
 
-        if ($forceOn && $prev !== 'on') {
-            $newRelay = 'on';
+        if ($forceOn) {
+            $desiredRelay = 'on';
             $reason = "array op '{$array['action']}' active";
-        } elseif (!$forceOn && $agg !== null) {
-            if ($agg >= $onTemp && $prev !== 'on') {
-                $newRelay = 'on';
-            } elseif ($agg <= $offTemp && $prev !== 'off') {
-                $newRelay = 'off';
+        } elseif ($agg !== null) {
+            if ($agg >= $onTemp) {
+                $desiredRelay = 'on';
+            } elseif ($agg <= $offTemp) {
+                $desiredRelay = 'off';
             }
         }
 
@@ -366,13 +500,22 @@ function htt_run_cycle() {
         $state[$id]['last_check'] = time();
         $state[$id]['forced_by_array_op'] = $forceOn;
 
-        if ($newRelay !== $prev) {
-            $ok = htt_send_command($rule, $newRelay === 'on');
+        // Normally only send on an actual transition. With force_resend, keep
+        // re-asserting the desired state every cycle even if unchanged -
+        // guards against the tracked relay state drifting from the real
+        // device (e.g. someone toggled it manually, or a previous send was
+        // silently dropped by the broker/device).
+        $shouldSend = in_array($desiredRelay, ['on', 'off'], true)
+            && ($desiredRelay !== $prev || !empty($rule['force_resend']));
+
+        if ($shouldSend) {
+            $ok = htt_send_command($rule, $desiredRelay === 'on');
             if ($ok) {
-                $state[$id]['relay'] = $newRelay;
-                htt_log("Rule '{$rule['name']}': $reason, transitioned {$prev} -> {$newRelay}");
+                $state[$id]['relay'] = $desiredRelay;
+                $verb = $desiredRelay !== $prev ? "transitioned {$prev} -> {$desiredRelay}" : "re-asserted {$desiredRelay} (force resend)";
+                htt_log("Rule '{$rule['name']}': $reason, $verb");
             } else {
-                htt_log("Rule '{$rule['name']}': $reason, transition {$prev} -> {$newRelay} FAILED, will retry next cycle");
+                htt_log("Rule '{$rule['name']}': $reason, send to {$desiredRelay} FAILED, will retry next cycle");
             }
         }
     }
