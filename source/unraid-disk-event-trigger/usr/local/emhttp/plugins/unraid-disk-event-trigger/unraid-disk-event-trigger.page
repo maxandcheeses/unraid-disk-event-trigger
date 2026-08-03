@@ -17,7 +17,8 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 #htt-wrap .rule-box.collapsed .rule-body { display: none; }
 #htt-wrap .htt-rule-toggle { cursor: pointer; display: inline-block; width: 16px; text-align: center; user-select: none; }
 #htt-wrap .htt-enabled-label { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; min-width: 0; }
-#htt-wrap .htt-relay-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; padding: 3px 10px 3px 8px; border-radius: 12px; background: rgba(128,128,128,0.18); color: inherit; margin-left: 8px; }
+#htt-wrap .htt-relay-badge { display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; padding: 3px 10px 3px 8px; border-radius: 12px; background: rgba(128,128,128,0.18); color: inherit; margin-left: 8px; min-width: 70px; box-sizing: border-box; }
+#htt-wrap .htt-rule-actions { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
 #htt-wrap .htt-relay-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.55; }
 #htt-wrap .htt-relay-badge.on { background: rgba(46,160,67,0.18); color: #2ea043; }
 #htt-wrap .htt-relay-badge.off { background: rgba(200,60,60,0.15); color: #cf5b5b; }
@@ -184,11 +185,13 @@ function httRenderRules() {
                 <label class="htt-enabled-label"><input type="checkbox" ${rule.enabled ? 'checked' : ''} class="htt-enabled"> Enabled</label>
                 <input type="text" class="htt-name" value="${(rule.name||'').replace(/"/g,'&quot;')}" placeholder="Rule name" style="width:200px">
                 ${httBadgeHtml(rule)}
-                <button type="button" onclick="httRemoveRule(${i})" style="float:right">Remove</button>
-                <button type="button" onclick="httDuplicateRule(${i})" style="float:right;margin-right:6px">Duplicate</button>
-                <button type="button" onclick="httMoveRule(${i},1)" ${i===httRules.length-1?'disabled':''} title="Move down (rules run in this order)" style="float:right;margin-right:6px">&#8595;</button>
-                <button type="button" onclick="httMoveRule(${i},-1)" ${i===0?'disabled':''} title="Move up (rules run in this order)" style="float:right;margin-right:2px">&#8593;</button>
-                <button type="button" onclick="httTestRule(${i})" style="float:right;margin-right:6px" title="Fires this rule's configured action once, regardless of current temp/usage/array state">Test</button>
+                <span class="htt-rule-actions">
+                    <button type="button" onclick="httMoveRule(${i},-1)" ${i===0?'disabled':''} title="Move up (rules run in this order)">&#8593;</button>
+                    <button type="button" onclick="httMoveRule(${i},1)" ${i===httRules.length-1?'disabled':''} title="Move down (rules run in this order)">&#8595;</button>
+                    <button type="button" onclick="httDuplicateRule(${i})">Duplicate</button>
+                    <button type="button" onclick="httTestRule(${i})" title="Fires this rule's configured action once, regardless of current temp/usage/array state">Test</button>
+                    <button type="button" onclick="httRemoveRule(${i})">Remove</button>
+                </span>
             </h4>
             <div class="rule-body">
             <div class="row">
