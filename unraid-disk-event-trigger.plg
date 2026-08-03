@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.8">
+<!ENTITY version   "2026.08.03.9">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "37505e0447db3b0a652bce5ed3d020fa">
+<!ENTITY srcMD5     "30639b4fb6784cbe8a0a447622fa5b89">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.9
+- Fix: the in-package README.md (which Unraid's Settings &gt; Plugins page reads as the plugin description) was stale, still only describing Tasmota/MQTT temperature triggers - updated to mention the webhook protocol, MQTT TLS, and disk usage % triggers.
+
 ###2026.08.03.8
 - Add: rules can now trigger on used disk space percentage instead of temperature (per-rule "Trigger on" choice), reusing the same aggregate/hysteresis/delay logic. Usage is read from Unraid's own cached filesystem stats, so it's safe to check even for spun-down disks.
 - Change: the disk table now shows a Used % column alongside temperature.
