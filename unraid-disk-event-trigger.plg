@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02.11">
+<!ENTITY version   "2026.08.02.12">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "5cde88ccb14732e25f912e1f4cd21518">
+<!ENTITY srcMD5     "c5422f7669a397d9ef051fbb0a86da68">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.12
+- Fix: the delay tooltip was a plain `title` on the number input, which is easy to miss. Replaced with a visible (i) info icon next to each delay field.
+
 ###2026.08.02.11
 - Add: tooltip on each on/off delay field explaining what it does.
 
