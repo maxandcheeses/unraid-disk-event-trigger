@@ -2,15 +2,20 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.6">
+<!ENTITY version   "2026.08.03.7">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "c104ddedb1c3c88190b24b3afa8bc570">
+<!ENTITY srcMD5     "8cec1d4a1ebfb047a3b380277e8e0a7f">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.7
+- Add: rules can now target a generic HTTP/HTTPS webhook (arbitrary method/URL/body/headers per ON/OFF, optional basic auth and a self-signed-certificate bypass) in addition to Tasmota HTTP and MQTT, for devices/automations Tasmota's fixed API doesn't cover.
+- Add: webhook rules get a "Check Device State" button that shows the raw HTTP response for debugging, since there's no generic way to infer on/off from an arbitrary endpoint's reply.
+- Add: MQTT connections can now use TLS (mqtts), with an option to ignore invalid/self-signed broker certificates on trusted LAN brokers.
+
 ###2026.08.03.6
 - Change: replaced the icon with a bolder-stroke version so it's actually legible at Unraid's small fixed icon size (the previous thin-outline artwork stayed faint even after cropping/dilation attempts).
 
