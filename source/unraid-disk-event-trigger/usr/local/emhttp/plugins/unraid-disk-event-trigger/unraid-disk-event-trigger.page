@@ -99,6 +99,8 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
   <h3>Rules</h3>
   <div id="htt-rules"></div>
   <button type="button" onclick="httAddRule()">+ Add Rule</button>
+  &nbsp;&nbsp;
+  <button type="button" id="htt-rules-structure-save" onclick="httSaveRulesStructure()" style="display:none;font-weight:600">Save &amp; Apply (adding/removing/reordering rules)</button>
   <span id="htt-save-msg"></span>
 
   <h3>Backup / YAML editor</h3>
@@ -118,6 +120,8 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 
 <script>
 const HTT_DISKS = <?= json_encode(array_values($disks)) ?>;
+/** ruleId -> JSON snapshot of the rule as last saved to disk, used to show/hide each rule's header Save button. */
+let httRuleSnapshots = {};
 let httRules = <?= json_encode($config['rules']) ?>.map(httNormalizeRule);
 let httConnections = <?= json_encode($config['connections'] ?? []) ?>;
 let httLastState = {}; // ruleId -> {fired, last_value, ...}, cached across re-renders so folding doesn't blank the badge
@@ -458,9 +462,12 @@ function httRenderRules() {
 
         const direction = rule.action_direction === 'off' ? 'off' : 'on';
 
+        const dirty = !rule.id || httRuleSnapshots[rule.id] !== JSON.stringify(rule);
+
         const box = document.createElement('div');
         box.className = 'rule-box' + (collapsed ? ' collapsed' : '');
         box.dataset.index = i;
+        box.dataset.ruleId = rule.id || '';
         box.innerHTML = `
             <h4>
                 <span class="htt-rule-toggle" onclick="httToggleCollapse(${i})">${collapsed ? '&#9656;' : '&#9662;'}</span>
@@ -468,6 +475,7 @@ function httRenderRules() {
                 <input type="text" class="htt-name" value="${(rule.name||'').replace(/"/g,'&quot;')}" placeholder="Rule name" style="width:200px">
                 ${httBadgeHtml(rule)}
                 <span class="htt-rule-actions">
+                    <button type="button" class="htt-rule-header-save" onclick="httSaveRule(${i})" title="Unsaved changes - save and apply this rule" style="display:${dirty?'':'none'};font-weight:600">Save &amp; Apply</button>
                     <button type="button" onclick="httMoveRule(${i},-1)" ${i===0?'disabled':''} title="Move up (rules run in this order)">&#8593;</button>
                     <button type="button" onclick="httMoveRule(${i},1)" ${i===httRules.length-1?'disabled':''} title="Move down (rules run in this order)">&#8595;</button>
                     <button type="button" onclick="httDuplicateRule(${i})">Duplicate</button>
@@ -575,6 +583,8 @@ function httRenderRules() {
             </div>
         `;
         wrap.appendChild(box);
+        box.addEventListener('input', () => httUpdateRuleDirtyIndicator(box));
+        box.addEventListener('change', () => httUpdateRuleDirtyIndicator(box));
     });
 }
 
@@ -600,10 +610,33 @@ function httToggleCollapse(i) {
     httRenderRules();
 }
 
-/** Persists the whole rule list/order as-is (used after structural changes below). */
-function httSaveRules() {
-    return httPost('action=save_rules&rules=' + encodeURIComponent(JSON.stringify(httRules)))
-        .then(r => r.json());
+/** True once a rule has been added/removed/duplicated/reordered but not yet saved - individual field edits are tracked separately, per rule. */
+let httRulesStructureDirty = false;
+
+function httUpdateRulesStructureButton() {
+    const btn = document.getElementById('htt-rules-structure-save');
+    if (btn) btn.style.display = httRulesStructureDirty ? '' : 'none';
+}
+
+/** Persists the whole rule list/order as-is - only called explicitly via the "Save & Apply" button below, not automatically on add/remove/move/duplicate. */
+function httSaveRulesStructure() {
+    const msg = document.getElementById('htt-save-msg');
+    if (msg) msg.textContent = ' Saving...';
+    httPost('action=save_rules&rules=' + encodeURIComponent(JSON.stringify(httRules)))
+        .then(r => r.json()).then(d => {
+            if (msg) {
+                msg.textContent = d.ok ? ' Saved and applied.' : ' Error saving: ' + (d.error || 'unknown error');
+                setTimeout(() => msg.textContent = '', 3000);
+            }
+            if (d.ok) {
+                httRulesStructureDirty = false;
+                httSnapshotRules(httRules); // also clears each rule's own header Save button, since save_rules persists their current in-memory content too
+                httUpdateRulesStructureButton();
+                httRenderRules();
+            }
+        }).catch(err => {
+            if (msg) msg.textContent = ' Error saving: ' + err;
+        });
 }
 
 function httAddRule() {
@@ -611,8 +644,9 @@ function httAddRule() {
     const newRule = { id: httUid(), name: 'New Rule', enabled: true, conditions: [{ trigger_type: 'temp', disks: ['all'], aggregate: 'max', direction: 'on', threshold: 40 }], action_direction: 'on', delay_seconds: 0, force_resend: false, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
+    httRulesStructureDirty = true;
     httRenderRules();
-    httSaveRules();
+    httUpdateRulesStructureButton();
 }
 
 function httDuplicateRule(i) {
@@ -622,15 +656,17 @@ function httDuplicateRule(i) {
     clone.name = (clone.name || 'Rule') + ' (copy)';
     httRules.splice(i + 1, 0, clone);
     httCollapsedOverride[clone.id] = false; // keep the new copy open for editing
+    httRulesStructureDirty = true;
     httRenderRules();
-    httSaveRules();
+    httUpdateRulesStructureButton();
 }
 
 function httRemoveRule(i) {
     httCollectRules();
     httRules.splice(i, 1);
+    httRulesStructureDirty = true;
     httRenderRules();
-    httSaveRules();
+    httUpdateRulesStructureButton();
 }
 
 /** Rules run in this order (top to bottom) - matches poll-cycle execution order 1:1. */
@@ -639,8 +675,72 @@ function httMoveRule(i, delta) {
     const j = i + delta;
     if (j < 0 || j >= httRules.length) return;
     [httRules[i], httRules[j]] = [httRules[j], httRules[i]];
+    httRulesStructureDirty = true;
     httRenderRules();
-    httSaveRules();
+    httUpdateRulesStructureButton();
+}
+
+function httCollectRuleFromBox(box, orig) {
+    orig = orig || {};
+    const conditions = Array.from(box.querySelectorAll('.htt-cond-block')).map((cb, ci) => {
+        const diskChecks = cb.querySelectorAll('.htt-disk-one:checked');
+        const allChecked = cb.querySelector('.htt-disk-all').checked;
+        const disks = allChecked ? ['all'] : Array.from(diskChecks).map(c => c.value);
+        const joinEl = cb.querySelector('.htt-cond-join');
+        return {
+            trigger_type: cb.querySelector('.htt-cond-trigger-type').value,
+            disks: disks,
+            aggregate: cb.querySelector('.htt-cond-aggregate').value,
+            direction: cb.querySelector('.htt-cond-direction').value,
+            threshold: parseFloat(cb.querySelector('.htt-cond-threshold').value),
+            join: ci > 0 ? (joinEl ? joinEl.value : 'and') : 'and',
+        };
+    });
+    return {
+        id: orig.id || httUid(),
+        name: box.querySelector('.htt-name').value || 'Rule',
+        enabled: box.querySelector('.htt-enabled').checked,
+        conditions: conditions,
+        action_direction: box.querySelector('.htt-action-direction').value,
+        delay_seconds: parseFloat(box.querySelector('.htt-delay').value) || 0,
+        force_resend: box.querySelector('.htt-force-resend').checked,
+        protocol: box.querySelector('.htt-protocol').value,
+        http: {
+            connection_id: box.querySelector('.htt-http-conn').value,
+            base_url: box.querySelector('.htt-http-url').value,
+            device_index: box.querySelector('.htt-http-idx').value,
+            username: box.querySelector('.htt-http-user').value,
+            password: box.querySelector('.htt-http-pass').value,
+        },
+        mqtt: {
+            connection_id: box.querySelector('.htt-mqtt-conn').value,
+            host: box.querySelector('.htt-mqtt-host').value,
+            port: parseInt(box.querySelector('.htt-mqtt-port').value) || 1883,
+            tls: box.querySelector('.htt-mqtt-tls').checked,
+            insecure_tls: box.querySelector('.htt-mqtt-insecure').checked,
+            username: box.querySelector('.htt-mqtt-user').value,
+            password: box.querySelector('.htt-mqtt-pass').value,
+            topic: box.querySelector('.htt-mqtt-topic').value,
+            payload: box.querySelector('.htt-mqtt-payload').value,
+            state_topic: box.querySelector('.htt-mqtt-statetopic').value,
+            state_is_json: box.querySelector('.htt-mqtt-statejson').checked,
+            state_json_key: box.querySelector('.htt-mqtt-statekey').value || 'state',
+            state_on_value: box.querySelector('.htt-mqtt-state-on').value || 'ON',
+            state_off_value: box.querySelector('.htt-mqtt-state-off').value || 'OFF',
+        },
+        webhook: {
+            connection_id: box.querySelector('.htt-webhook-conn').value,
+            method: box.querySelector('.htt-webhook-method').value,
+            url: box.querySelector('.htt-webhook-url').value,
+            body: box.querySelector('.htt-webhook-body').value,
+            headers: box.querySelector('.htt-webhook-headers').value,
+            username: box.querySelector('.htt-webhook-user').value,
+            password: box.querySelector('.htt-webhook-pass').value,
+            insecure_tls: box.querySelector('.htt-webhook-insecure').checked,
+            state_url: box.querySelector('.htt-webhook-state-url').value,
+            state_method: box.querySelector('.htt-webhook-state-method').value,
+        },
+    };
 }
 
 function httCollectRules() {
@@ -648,80 +748,38 @@ function httCollectRules() {
     const rules = [];
     boxes.forEach(box => {
         const i = parseInt(box.dataset.index);
-        const orig = httRules[i] || {};
-        const conditions = Array.from(box.querySelectorAll('.htt-cond-block')).map((cb, ci) => {
-            const diskChecks = cb.querySelectorAll('.htt-disk-one:checked');
-            const allChecked = cb.querySelector('.htt-disk-all').checked;
-            const disks = allChecked ? ['all'] : Array.from(diskChecks).map(c => c.value);
-            const joinEl = cb.querySelector('.htt-cond-join');
-            return {
-                trigger_type: cb.querySelector('.htt-cond-trigger-type').value,
-                disks: disks,
-                aggregate: cb.querySelector('.htt-cond-aggregate').value,
-                direction: cb.querySelector('.htt-cond-direction').value,
-                threshold: parseFloat(cb.querySelector('.htt-cond-threshold').value),
-                join: ci > 0 ? (joinEl ? joinEl.value : 'and') : 'and',
-            };
-        });
-        rules.push({
-            id: orig.id || httUid(),
-            name: box.querySelector('.htt-name').value || 'Rule',
-            enabled: box.querySelector('.htt-enabled').checked,
-            conditions: conditions,
-            action_direction: box.querySelector('.htt-action-direction').value,
-            delay_seconds: parseFloat(box.querySelector('.htt-delay').value) || 0,
-            force_resend: box.querySelector('.htt-force-resend').checked,
-            protocol: box.querySelector('.htt-protocol').value,
-            http: {
-                connection_id: box.querySelector('.htt-http-conn').value,
-                base_url: box.querySelector('.htt-http-url').value,
-                device_index: box.querySelector('.htt-http-idx').value,
-                username: box.querySelector('.htt-http-user').value,
-                password: box.querySelector('.htt-http-pass').value,
-            },
-            mqtt: {
-                connection_id: box.querySelector('.htt-mqtt-conn').value,
-                host: box.querySelector('.htt-mqtt-host').value,
-                port: parseInt(box.querySelector('.htt-mqtt-port').value) || 1883,
-                tls: box.querySelector('.htt-mqtt-tls').checked,
-                insecure_tls: box.querySelector('.htt-mqtt-insecure').checked,
-                username: box.querySelector('.htt-mqtt-user').value,
-                password: box.querySelector('.htt-mqtt-pass').value,
-                topic: box.querySelector('.htt-mqtt-topic').value,
-                payload: box.querySelector('.htt-mqtt-payload').value,
-                state_topic: box.querySelector('.htt-mqtt-statetopic').value,
-                state_is_json: box.querySelector('.htt-mqtt-statejson').checked,
-                state_json_key: box.querySelector('.htt-mqtt-statekey').value || 'state',
-                state_on_value: box.querySelector('.htt-mqtt-state-on').value || 'ON',
-                state_off_value: box.querySelector('.htt-mqtt-state-off').value || 'OFF',
-            },
-            webhook: {
-                connection_id: box.querySelector('.htt-webhook-conn').value,
-                method: box.querySelector('.htt-webhook-method').value,
-                url: box.querySelector('.htt-webhook-url').value,
-                body: box.querySelector('.htt-webhook-body').value,
-                headers: box.querySelector('.htt-webhook-headers').value,
-                username: box.querySelector('.htt-webhook-user').value,
-                password: box.querySelector('.htt-webhook-pass').value,
-                insecure_tls: box.querySelector('.htt-webhook-insecure').checked,
-                state_url: box.querySelector('.htt-webhook-state-url').value,
-                state_method: box.querySelector('.htt-webhook-state-method').value,
-            },
-        });
+        rules.push(httCollectRuleFromBox(box, httRules[i]));
     });
     httRules = rules;
     return rules;
 }
 
+function httSnapshotRules(rules) {
+    rules.forEach(r => { if (r.id) httRuleSnapshots[r.id] = JSON.stringify(r); });
+}
+
+function httUpdateRuleDirtyIndicator(box) {
+    const rule = httCollectRuleFromBox(box, { id: box.dataset.ruleId });
+    const btn = box.querySelector('.htt-rule-header-save');
+    if (!btn) return;
+    const dirty = httRuleSnapshots[rule.id] !== JSON.stringify(rule);
+    btn.style.display = dirty ? '' : 'none';
+}
+
 function httSaveRule(i) {
     httCollectRules();
     const rule = httRules[i];
-    const msgEl = document.querySelector(`.rule-box[data-index="${i}"] .htt-rule-save-msg`);
+    const box = document.querySelector(`.rule-box[data-index="${i}"]`);
+    const msgEl = box?.querySelector('.htt-rule-save-msg');
     httPost('action=save_rule&rule=' + encodeURIComponent(JSON.stringify(rule)))
         .then(r => r.json()).then(d => {
             if (msgEl) {
                 msgEl.textContent = d.ok ? ' Saved and applied.' : ' Error saving: ' + (d.error || 'unknown error');
                 setTimeout(() => msgEl.textContent = '', 3000);
+            }
+            if (d.ok) {
+                httSnapshotRules([rule]);
+                if (box) httUpdateRuleDirtyIndicator(box);
             }
         }).catch(err => {
             if (msgEl) msgEl.textContent = ' Error saving: ' + err;
@@ -815,6 +873,7 @@ function httApplyYaml() {
                 // Refresh the rule editor / global settings from the newly saved config.
                 fetch(HTT_ENDPOINT + '?action=get_config', { credentials: 'same-origin' }).then(r => r.json()).then(config => {
                     httRules = (config.rules || []).map(httNormalizeRule);
+                    httRulesStructureDirty = false;
                     httConnections = config.connections || [];
                     document.getElementById('htt-poll-interval').value = config.poll_interval ?? 60;
                     const pluginEnabled = document.getElementById('htt-plugin-enabled');
@@ -825,6 +884,12 @@ function httApplyYaml() {
                     httCollapsedOverride = {};
                     httRenderConnections();
                     httRenderRules();
+                    // Re-collect through the DOM so the snapshot is in the same
+                    // canonical shape httCollectRuleFromBox() produces later.
+                    httRules = httCollectRules();
+                    httSnapshotRules(httRules);
+                    httRenderRules();
+                    httUpdateRulesStructureButton();
                     httLoadStatus();
                 });
             } else {
@@ -874,6 +939,13 @@ function httClearLog() {
 }
 
 httRenderConnections();
+httRenderRules();
+// Re-collect once through the DOM so the "as saved" snapshot is in the same
+// canonical shape httCollectRuleFromBox() produces later - otherwise every
+// rule would show as dirty on load just from key-order/shape differences
+// versus the raw JSON straight off disk.
+httRules = httCollectRules();
+httSnapshotRules(httRules);
 httRenderRules();
 httLoadStatus();
 httLoadLog();

@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.21">
+<!ENTITY version   "2026.08.03.22">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "6a581f2b8c23528f80e35b01b86967ee">
@@ -11,6 +11,10 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.22
+- Add: each rule now shows its own **Save &amp; Apply** button next to the reorder arrows whenever it has unsaved edits, and hides it again once saved (or once it matches what's on disk) - a quicker way to spot and save a changed rule than scrolling to the bottom of its editor.
+- **CHANGE**: adding, removing, duplicating, or reordering a rule no longer saves immediately - a "Save &amp; Apply (adding/removing/reordering rules)" button now appears next to "+ Add Rule" and must be clicked for those structural changes to actually take effect, matching how field edits already require an explicit Save.
+
 ###2026.08.03.21
 - Add: **Test Conditions** button on each rule, which evaluates its conditions right now against live disk/array state (no command sent) and shows a per-condition breakdown - each condition's current reading, whether it's met (&#10003;/&#10007;), its AND/OR join with the running result, and the overall true/false outcome - so it's easy to see exactly which condition is stopping the rule from firing.
 - Add: **Duplicate condition** button on each condition, to quickly clone one (e.g. as a starting point for a second threshold on the same metric, or a similar condition on different disks).
