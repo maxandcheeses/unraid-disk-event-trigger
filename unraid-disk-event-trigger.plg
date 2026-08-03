@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02.2">
+<!ENTITY version   "2026.08.02.3">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "a22cb1dcdd886cbbd7270fe22d9bb52c">
+<!ENTITY srcMD5     "158b432b9602c1ecc2807339394c1fd6">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.3
+- Add: "Clear Log" button (with confirmation prompt) next to Refresh Log.
+
 ###2026.08.02.2
 - Fix: Save &amp; Apply (and every other write action) silently did nothing, because Unraid's webGUI drops any POST missing a csrf_token. Now wired through correctly.
 - Add: show/hide toggle on password fields.
