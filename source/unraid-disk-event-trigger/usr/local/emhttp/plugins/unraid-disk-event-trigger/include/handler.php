@@ -85,12 +85,14 @@ switch ($action) {
         }
         unset($d);
         $svc = trim(shell_exec('/etc/rc.d/rc.unraid-disk-event-trigger status 2>&1'));
+        $cfg = htt_load_config();
         respond([
             'disks' => array_values($disks),
             'state' => htt_load_state(),
             'array' => htt_array_status(),
             'service_status' => $svc,
             'running' => (strpos($svc, 'is running') !== false),
+            'poll_interval' => max(10, intval($cfg['poll_interval'] ?? 60)),
         ]);
 
     case 'get_log':

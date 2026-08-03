@@ -131,6 +131,7 @@ function htt_validate_config($config) {
             }
         }
         if (isset($rule['delay_seconds']) && (!is_numeric($rule['delay_seconds']) || $rule['delay_seconds'] < 0)) $errors[] = "$label: delay_seconds must be a non-negative number";
+        if (isset($rule['reset_rules']) && !is_array($rule['reset_rules'])) $errors[] = "$label: reset_rules must be a list";
         if (isset($rule['protocol']) && !in_array($rule['protocol'], ['http', 'mqtt', 'webhook'], true)) {
             $errors[] = "$label: protocol must be 'http', 'mqtt', or 'webhook'";
         }
@@ -1015,6 +1016,12 @@ function htt_run_cycle() {
     $disks = htt_list_disks();
     $state = htt_load_state();
     $array = htt_array_status();
+    // Recorded so the webGUI can show a countdown to the next poll cycle;
+    // '_' prefix keeps it out of the way of rule ids (hex strings from
+    // bin2hex, never underscore-prefixed).
+    $state['_last_cycle_at'] = time();
+    $ruleNames = [];
+    foreach ($config['rules'] as $r) $ruleNames[$r['id'] ?? ''] = $r['name'] ?? '?';
 
     foreach ($config['rules'] as $rule) {
         if (empty($rule['enabled'])) continue;
@@ -1096,6 +1103,21 @@ function htt_run_cycle() {
             $state[$id]['fired'] = true;
             unset($state[$id]['pending_since']);
             htt_log("Rule '{$rule['name']}': $reason, fired");
+            // Reset any rules this one is configured to reset - e.g. an ON
+            // rule resetting its paired OFF rule's fired flag, so hysteresis
+            // pairs don't get stuck believing they already fired. Only on
+            // this not-fired -> fired transition, not on every force-resend
+            // re-assertion, which would otherwise reset the same rules every
+            // single poll cycle.
+            foreach (($rule['reset_rules'] ?? []) as $resetId) {
+                if ($resetId === $id) continue;
+                if (!empty($state[$resetId]['fired'])) {
+                    $state[$resetId]['fired'] = false;
+                    unset($state[$resetId]['pending_since']);
+                    $resetName = $ruleNames[$resetId] ?? $resetId;
+                    htt_log("Rule '{$rule['name']}': reset '{$resetName}''s fired flag");
+                }
+            }
         } else {
             htt_log("Rule '{$rule['name']}': $reason, send FAILED, will retry next cycle");
         }
