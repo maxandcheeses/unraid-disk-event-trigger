@@ -47,9 +47,9 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
     <span id="htt-plugin-toggle-note">When disabled, the background poller is stopped entirely - nothing is monitored and no commands are sent.</span>
   </div>
 
-  <h3>Disk Temperatures</h3>
+  <h3>Disk Temperatures &amp; Usage</h3>
   <table>
-    <thead><tr><th>Disk</th><th>Device</th><th>Spun down</th><th>Temp (&deg;C)</th></tr></thead>
+    <thead><tr><th>Disk</th><th>Device</th><th>Spun down</th><th>Temp (&deg;C)</th><th>Used %</th></tr></thead>
     <tbody id="htt-disk-table">
       <?php foreach ($disks as $d): ?>
       <tr>
@@ -57,6 +57,7 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
         <td><?= htmlspecialchars($d['device']) ?></td>
         <td><?= $d['spundown'] ? 'yes' : 'no' ?></td>
         <td><?= $d['spundown'] ? '-' : htmlspecialchars($d['temp'] ?? '?') ?></td>
+        <td><?= htmlspecialchars(htt_disk_usage_pct($d) ?? '?') ?></td>
       </tr>
       <?php endforeach; ?>
     </tbody>
@@ -177,22 +178,29 @@ function httRenderRules() {
                 <div class="disk-list">${httDiskCheckboxes(rule.disks)}</div>
             </div>
             <div class="row">
+                <label>Trigger on</label>
+                <select class="htt-trigger-type" onchange="httToggleTriggerType(this)">
+                    <option value="temp" ${rule.trigger_type!=='usage'?'selected':''}>Disk temperature</option>
+                    <option value="usage" ${rule.trigger_type==='usage'?'selected':''}>Disk usage %</option>
+                </select>
+            </div>
+            <div class="row">
                 <label>Aggregate</label>
                 <select class="htt-aggregate">
-                    <option value="max" ${rule.aggregate==='max'?'selected':''}>Max (hottest disk)</option>
+                    <option value="max" ${rule.aggregate==='max'?'selected':''}>Max (${rule.trigger_type==='usage'?'fullest':'hottest'} disk)</option>
                     <option value="avg" ${rule.aggregate==='avg'?'selected':''}>Average</option>
-                    <option value="min" ${rule.aggregate==='min'?'selected':''}>Min (coolest disk)</option>
+                    <option value="min" ${rule.aggregate==='min'?'selected':''}>Min (${rule.trigger_type==='usage'?'emptiest':'coolest'} disk)</option>
                 </select>
             </div>
             <div class="row">
                 <label>Turn ON at &ge;</label>
-                <input type="number" class="htt-on-temp" value="${rule.on_temp ?? 40}"> &deg;C
-                &nbsp;&nbsp;delay <input type="number" class="htt-on-delay" min="0" style="width:70px" value="${rule.on_delay_seconds ?? 0}"> sec <span class="htt-help" title="Only turn ON once the temperature has stayed at or above this threshold continuously for this many seconds. If it drops back below before the delay elapses, the ON command is never sent. 0 = send immediately.">&#9432;</span>
+                <input type="number" class="htt-on-temp" value="${rule.on_temp ?? 40}"> <span class="htt-on-unit">${rule.trigger_type==='usage'?'%':'°C'}</span>
+                &nbsp;&nbsp;delay <input type="number" class="htt-on-delay" min="0" style="width:70px" value="${rule.on_delay_seconds ?? 0}"> sec <span class="htt-help" title="Only turn ON once the value has stayed at or above this threshold continuously for this many seconds. If it drops back below before the delay elapses, the ON command is never sent. 0 = send immediately.">&#9432;</span>
             </div>
             <div class="row">
                 <label>Turn OFF at &le;</label>
-                <input type="number" class="htt-off-temp" value="${rule.off_temp ?? 35}"> &deg;C
-                &nbsp;&nbsp;delay <input type="number" class="htt-off-delay" min="0" style="width:70px" value="${rule.off_delay_seconds ?? 0}"> sec <span class="htt-help" title="Only turn OFF once the temperature has stayed at or below this threshold continuously for this many seconds. If it rises back above before the delay elapses, the OFF command is never sent. 0 = send immediately.">&#9432;</span>
+                <input type="number" class="htt-off-temp" value="${rule.off_temp ?? 35}"> <span class="htt-off-unit">${rule.trigger_type==='usage'?'%':'°C'}</span>
+                &nbsp;&nbsp;delay <input type="number" class="htt-off-delay" min="0" style="width:70px" value="${rule.off_delay_seconds ?? 0}"> sec <span class="htt-help" title="Only turn OFF once the value has stayed at or below this threshold continuously for this many seconds. If it rises back above before the delay elapses, the OFF command is never sent. 0 = send immediately.">&#9432;</span>
             </div>
             <div class="row">
                 <label>Also force ON during</label>
@@ -275,6 +283,16 @@ function httToggleProto(sel) {
     box.querySelector('.htt-webhook-block').classList.toggle('active', sel.value === 'webhook');
 }
 
+function httToggleTriggerType(sel) {
+    const box = sel.closest('.rule-box');
+    const isUsage = sel.value === 'usage';
+    box.querySelector('.htt-on-unit').textContent = isUsage ? '%' : '°C';
+    box.querySelector('.htt-off-unit').textContent = isUsage ? '%' : '°C';
+    const aggSel = box.querySelector('.htt-aggregate');
+    aggSel.querySelector('option[value="max"]').textContent = `Max (${isUsage ? 'fullest' : 'hottest'} disk)`;
+    aggSel.querySelector('option[value="min"]').textContent = `Min (${isUsage ? 'emptiest' : 'coolest'} disk)`;
+}
+
 function httToggleCollapse(i) {
     const rule = httRules[i];
     const key = rule.id || ('idx' + i);
@@ -284,7 +302,7 @@ function httToggleCollapse(i) {
 }
 
 function httAddRule() {
-    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], aggregate: 'max', on_temp: 40, off_temp: 35, on_delay_seconds: 0, off_delay_seconds: 0, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
+    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], trigger_type: 'temp', aggregate: 'max', on_temp: 40, off_temp: 35, on_delay_seconds: 0, off_delay_seconds: 0, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
     httRenderRules();
@@ -310,6 +328,7 @@ function httCollectRules() {
             name: box.querySelector('.htt-name').value || 'Rule',
             enabled: box.querySelector('.htt-enabled').checked,
             disks: disks,
+            trigger_type: box.querySelector('.htt-trigger-type').value,
             aggregate: box.querySelector('.htt-aggregate').value,
             on_temp: parseFloat(box.querySelector('.htt-on-temp').value),
             off_temp: parseFloat(box.querySelector('.htt-off-temp').value),
@@ -478,7 +497,7 @@ function httLoadStatus() {
         const tbody = document.getElementById('htt-disk-table');
         tbody.innerHTML = '';
         d.disks.forEach(disk => {
-            tbody.innerHTML += `<tr><td>${disk.name}</td><td>${disk.device}</td><td>${disk.spundown?'yes':'no'}</td><td>${disk.spundown?'-':(disk.live_temp ?? '?')}</td></tr>`;
+            tbody.innerHTML += `<tr><td>${disk.name}</td><td>${disk.device}</td><td>${disk.spundown?'yes':'no'}</td><td>${disk.spundown?'-':(disk.live_temp ?? '?')}</td><td>${disk.usage_pct ?? '?'}</td></tr>`;
         });
         httLastState = d.state || {};
         document.querySelectorAll('.htt-relay-badge').forEach(badge => {

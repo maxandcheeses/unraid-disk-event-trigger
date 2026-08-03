@@ -62,6 +62,9 @@ function htt_validate_config($config) {
     foreach (($config['rules'] ?? []) as $idx => $rule) {
         $label = "rule #" . ($idx + 1) . (is_array($rule) && !empty($rule['name']) ? " ('{$rule['name']}')" : '');
         if (!is_array($rule)) { $errors[] = "$label must be a mapping"; continue; }
+        if (isset($rule['trigger_type']) && !in_array($rule['trigger_type'], ['temp', 'usage'], true)) {
+            $errors[] = "$label: trigger_type must be 'temp' or 'usage'";
+        }
         if (isset($rule['on_temp']) && !is_numeric($rule['on_temp'])) $errors[] = "$label: on_temp must be a number";
         if (isset($rule['off_temp']) && !is_numeric($rule['off_temp'])) $errors[] = "$label: off_temp must be a number";
         if (isset($rule['on_delay_seconds']) && (!is_numeric($rule['on_delay_seconds']) || $rule['on_delay_seconds'] < 0)) $errors[] = "$label: on_delay_seconds must be a non-negative number";
@@ -300,11 +303,15 @@ function htt_list_disks() {
         foreach ($all as $name => $d) {
             if (empty($d['device'])) continue;
             if (!empty($d['type']) && !in_array($d['type'], ['Data', 'Parity', 'Cache'])) continue;
+            $fsSize = isset($d['fsSize']) ? floatval($d['fsSize']) : null; // KB, from Unraid's own filesystem stat cache
+            $fsFree = isset($d['fsFree']) ? floatval($d['fsFree']) : null;
             $disks[$name] = [
                 'name' => $name,
                 'device' => $d['device'],
                 'spundown' => !empty($d['spundown']) && $d['spundown'] == '1',
                 'temp' => isset($d['temp']) ? intval($d['temp']) : null,
+                'fs_size' => $fsSize,
+                'fs_free' => $fsFree,
             ];
         }
     }
@@ -341,6 +348,19 @@ function htt_disk_temp($disk) {
         return intval($m[1]); // SAS
     }
     return null;
+}
+
+/**
+ * Get current used-space percentage for a disk, from Unraid's own cached
+ * filesystem stats (disks.ini fsSize/fsFree) - this is static filesystem
+ * metadata, not a live query, so unlike temp it's safe to read even for
+ * spun-down disks without waking them.
+ */
+function htt_disk_usage_pct($disk) {
+    $size = $disk['fs_size'] ?? null;
+    $free = $disk['fs_free'] ?? null;
+    if ($size === null || $free === null || $size <= 0) return null;
+    return round((($size - $free) / $size) * 100, 1);
 }
 
 /** Aggregate a list of temps according to the rule's aggregate mode. */
@@ -807,17 +827,20 @@ function htt_run_cycle() {
         if (empty($rule['enabled'])) continue;
         $id = $rule['id'];
 
+        $triggerType = $rule['trigger_type'] ?? 'temp';
+        $metricFn = $triggerType === 'usage' ? 'htt_disk_usage_pct' : 'htt_disk_temp';
+
         $selected = $rule['disks'] ?? ['all'];
-        $temps = [];
+        $values = [];
         if (in_array('all', $selected)) {
-            foreach ($disks as $d) $temps[] = htt_disk_temp($d);
+            foreach ($disks as $d) $values[] = $metricFn($d);
         } else {
             foreach ($selected as $name) {
-                if (isset($disks[$name])) $temps[] = htt_disk_temp($disks[$name]);
+                if (isset($disks[$name])) $values[] = $metricFn($disks[$name]);
             }
         }
 
-        $agg = htt_aggregate($temps, $rule['aggregate'] ?? 'max');
+        $agg = htt_aggregate($values, $rule['aggregate'] ?? 'max');
         $prev = $state[$id]['relay'] ?? 'unknown';
 
         $forceOn = $array['active'] && (
@@ -826,7 +849,8 @@ function htt_run_cycle() {
         );
 
         if ($agg === null && !$forceOn) {
-            htt_log("Rule '{$rule['name']}': no readable disk temps (all spun down?), skipping");
+            $what = $triggerType === 'usage' ? 'disk usage' : 'disk temps';
+            htt_log("Rule '{$rule['name']}': no readable $what (all spun down, or usage data unavailable?), skipping");
             continue;
         }
 
@@ -835,7 +859,7 @@ function htt_run_cycle() {
         // Desired relay state per current thresholds; within the hysteresis
         // band (between off_temp and on_temp) carry forward the last decision.
         $desiredRelay = $prev;
-        $reason = "temp={$agg}C";
+        $reason = $triggerType === 'usage' ? "usage={$agg}%" : "temp={$agg}C";
 
         if ($forceOn) {
             $desiredRelay = 'on';

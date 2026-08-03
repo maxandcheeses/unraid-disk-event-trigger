@@ -2,12 +2,17 @@
 
 Unraid plugin: monitors HDD/SSD temperatures (via Unraid's own SMART cache,
 falling back to `smartctl` for disks that are spun up but not yet cached —
-spun-down disks are never woken just to poll temp) and fires Tasmota
-switches when configurable thresholds are crossed, with hysteresis
-(separate on/off temps) so a switch doesn't chatter near the threshold.
+spun-down disks are never woken just to poll temp) and/or used disk space
+percentage (from Unraid's own cached filesystem stats, safe to read even for
+spun-down disks), and fires Tasmota switches or webhooks when configurable
+thresholds are crossed, with hysteresis (separate on/off thresholds) so a
+switch doesn't chatter near the threshold.
 
 - Multiple independent rules, each covering any subset of array/cache disks
   (or "all"), aggregated by max/avg/min.
+- Per-rule trigger metric: disk **temperature** or disk **used space %** —
+  e.g. spin up a backup drive when the array crosses a capacity threshold,
+  independent of any temperature-based rules.
 - Three trigger protocols per rule:
   - **HTTP**: Tasmota's native `http://<ip>/cm?cmnd=Power On|Off` API.
   - **MQTT**: a minimal built-in MQTT v3.1.1 QoS0 publisher (no external
@@ -77,6 +82,7 @@ build.sh                  packages source/ into unraid-disk-event-trigger.txz an
       "name": "Array HDDs",
       "enabled": true,
       "disks": ["all"],
+      "trigger_type": "temp",
       "aggregate": "max",
       "on_temp": 40,
       "off_temp": 35,
@@ -97,6 +103,12 @@ build.sh                  packages source/ into unraid-disk-event-trigger.txz an
   ]
 }
 ```
+
+`trigger_type` is `"temp"` (default) or `"usage"` (used disk space
+percentage). `on_temp`/`off_temp` are reused as the generic threshold values
+for whichever metric is selected (kept as-named for config backward
+compatibility) — e.g. with `trigger_type: "usage"`, `on_temp: 85` means
+"turn ON once usage reaches 85%".
 
 Relay on/off state per rule (for hysteresis) is cached at
 `/var/local/emhttp/unraid-disk-event-trigger.state.json` (cleared on reboot —

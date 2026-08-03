@@ -36,7 +36,10 @@ switch ($action) {
 
     case 'get_status':
         $disks = htt_list_disks();
-        foreach ($disks as &$d) { $d['live_temp'] = htt_disk_temp($d); }
+        foreach ($disks as &$d) {
+            $d['live_temp'] = htt_disk_temp($d);
+            $d['usage_pct'] = htt_disk_usage_pct($d);
+        }
         unset($d);
         $svc = trim(shell_exec('/etc/rc.d/rc.unraid-disk-event-trigger status 2>&1'));
         respond([
