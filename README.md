@@ -44,18 +44,30 @@ switch doesn't chatter near the threshold.
 ## Layout
 
 ```
-source/unraid-disk-event-trigger/     files as they land on the Unraid filesystem
-  usr/local/emhttp/plugins/unraid-disk-event-trigger/
-    unraid-disk-event-trigger.page    webGUI settings page
-    include/lib.php             config I/O, disk temps, rule engine, HTTP/MQTT senders
-    include/handler.php         AJAX endpoint used by the page
-    scripts/poll_daemon.php     the long-running poller
-  etc/rc.d/rc.unraid-disk-event-trigger   init script (start/stop/restart/status)
-  boot/config/plugins/unraid-disk-event-trigger/   persistent config (rules.json)
+source/unraid-disk-event-trigger/
+    files as they land on the Unraid filesystem
 
-unraid-disk-event-trigger.plg   Unraid plugin installer manifest
-build.sh                  packages source/ into unraid-disk-event-trigger.txz and
-                           updates the MD5 in the .plg
+  usr/local/emhttp/plugins/unraid-disk-event-trigger/
+    unraid-disk-event-trigger.page
+        webGUI settings page
+    include/lib.php
+        config I/O, disk temps/usage, rule engine, HTTP/MQTT/webhook senders
+    include/handler.php
+        AJAX endpoint used by the page
+    scripts/poll_daemon.php
+        the long-running poller
+
+  etc/rc.d/rc.unraid-disk-event-trigger
+    init script (start/stop/restart/status)
+
+  boot/config/plugins/unraid-disk-event-trigger/
+    persistent config (rules.json)
+
+unraid-disk-event-trigger.plg
+    Unraid plugin installer manifest
+
+build.sh
+    packages source/ into unraid-disk-event-trigger.txz and updates the MD5 in the .plg
 ```
 
 ## Building & installing
@@ -113,11 +125,3 @@ compatibility) — e.g. with `trigger_type: "usage"`, `on_temp: 85` means
 Relay on/off state per rule (for hysteresis) is cached at
 `/var/local/emhttp/unraid-disk-event-trigger.state.json` (cleared on reboot —
 the first poll after boot re-evaluates and re-sends the command).
-
-## Not yet done / worth hardening before real-world use
-
-- Only tested by static review — I don't have a live Unraid box or a
-  Tasmota/MQTT/webhook device in this environment, so please smoke-test the
-  install, the disk temp table, and the HTTP, MQTT, and webhook
-  "Test ON/OFF" / "Check Device State" buttons before relying on it to
-  actually switch something.
