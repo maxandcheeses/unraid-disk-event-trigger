@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.27">
+<!ENTITY version   "2026.08.03.28">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "e0cb3667d71fb647cb0fd1c0a735e3e5">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.28
+- **CHANGE**: disk temperature is now read exclusively from Unraid's own cached value in disks.ini - the plugin no longer shells out to `smartctl` itself as a fallback. `smartctl -A` was slow enough to be a poor fit for a poller running every poll_interval seconds. Trade-off: if nothing has refreshed a disk's temp recently (e.g. no one has the Main webGUI page open), a temp-based condition can read as unavailable until Unraid's own background refresh updates disks.ini again - array/data rebuild, parity check, and usage-based conditions are unaffected, since they never used smartctl.
+
 ###2026.08.03.27
 - Add: clicking a rule's "Fired"/"Idle" status badge now clears its fired flag (only does anything when it's currently Fired) - a quick manual reset without needing "Check Device State" or waiting for the condition to clear on its own. The rule re-fires next poll cycle if its condition is still met.
 

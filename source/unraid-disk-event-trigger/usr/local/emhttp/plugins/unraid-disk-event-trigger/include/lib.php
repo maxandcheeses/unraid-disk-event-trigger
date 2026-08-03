@@ -349,9 +349,8 @@ function htt_save_state($state) {
 }
 
 /**
- * Enumerate array/cache disks known to Unraid via disks.ini, which already
- * tracks spin-down state. We avoid querying spun-down disks with smartctl
- * so we don't wake sleeping drives just to poll temperature.
+ * Enumerate array/cache disks known to Unraid via disks.ini, including its
+ * cached spin-down state and temp reading.
  */
 function htt_list_disks() {
     $ini = '/var/local/emhttp/disks.ini';
@@ -377,33 +376,17 @@ function htt_list_disks() {
 }
 
 /**
- * Get current temp (Celsius) for a disk. Prefers Unraid's own cached temp
- * (already populated by emhttp and safe for spun-down disks). Falls back to
- * smartctl -A for a live reading when Unraid hasn't cached one and the disk
- * is confirmed spun up.
+ * Get current temp (Celsius) for a disk, read entirely from Unraid's own
+ * cached value in disks.ini (populated by emhttp, e.g. when the Main
+ * webGUI page loads/refreshes) - never shells out to smartctl ourselves,
+ * which is slow enough to be a poor fit for a poller running every
+ * poll_interval seconds. The trade-off: if nothing has refreshed a disk's
+ * temp recently (no one has the Main page open), this can return null/stale
+ * until Unraid's own background refresh updates disks.ini again.
  */
 function htt_disk_temp($disk) {
     if ($disk['temp'] !== null && $disk['temp'] !== '' && $disk['temp'] != '*') {
         return $disk['temp'];
-    }
-    if ($disk['spundown']) {
-        return null; // never wake a sleeping disk just to poll temp
-    }
-    $dev = escapeshellarg('/dev/' . ltrim($disk['device'], '/'));
-    $out = [];
-    exec("smartctl -A -n standby $dev 2>/dev/null", $out, $rc);
-    $text = implode("\n", $out);
-    if (preg_match('/^194\s+Temperature_Celsius.*?\s(\d+)(\s|$)/m', $text, $m)) {
-        return intval($m[1]);
-    }
-    if (preg_match('/^190\s+Airflow_Temperature_Cel.*?\s(\d+)(\s|$)/m', $text, $m)) {
-        return intval($m[1]);
-    }
-    if (preg_match('/Temperature:\s+(\d+)\s+Celsius/', $text, $m)) {
-        return intval($m[1]); // NVMe
-    }
-    if (preg_match('/Current Drive Temperature:\s+(\d+)\s+C/', $text, $m)) {
-        return intval($m[1]); // SAS
     }
     return null;
 }
@@ -1054,7 +1037,7 @@ function htt_run_cycle() {
         $state[$id]['last_check'] = time();
 
         if ($unavailable) {
-            htt_log("Rule '{$rule['name']}': a condition's data is unavailable (all spun down, or usage data unavailable?), skipping");
+            htt_log("Rule '{$rule['name']}': a condition's data is unavailable (all spun down, no cached temp/usage reading from Unraid yet, or usage data unavailable?), skipping");
             continue;
         }
 
