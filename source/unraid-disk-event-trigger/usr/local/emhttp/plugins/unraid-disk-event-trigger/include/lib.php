@@ -114,8 +114,8 @@ function htt_validate_config($config) {
             foreach (($rule['conditions'] ?? []) as $cidx => $cond) {
                 $clabel = "$label, condition #" . ($cidx + 1);
                 if (!is_array($cond)) { $errors[] = "$clabel must be a mapping"; continue; }
-                if (isset($cond['trigger_type']) && !in_array($cond['trigger_type'], ['temp', 'usage', 'parity_check', 'rebuild'], true)) {
-                    $errors[] = "$clabel: trigger_type must be 'temp', 'usage', 'parity_check', or 'rebuild'";
+                if (isset($cond['trigger_type']) && !in_array($cond['trigger_type'], ['temp', 'usage', 'parity_check', 'rebuild', 'rule_state'], true)) {
+                    $errors[] = "$clabel: trigger_type must be 'temp', 'usage', 'parity_check', 'rebuild', or 'rule_state'";
                 }
                 if (isset($cond['direction']) && !in_array($cond['direction'], ['on', 'off'], true)) {
                     $errors[] = "$clabel: direction must be 'on' or 'off'";
@@ -131,7 +131,7 @@ function htt_validate_config($config) {
             }
         }
         if (isset($rule['delay_seconds']) && (!is_numeric($rule['delay_seconds']) || $rule['delay_seconds'] < 0)) $errors[] = "$label: delay_seconds must be a non-negative number";
-        if (isset($rule['reset_rules']) && !is_array($rule['reset_rules'])) $errors[] = "$label: reset_rules must be a list";
+        if (isset($rule['auto_reset_minutes']) && (!is_numeric($rule['auto_reset_minutes']) || $rule['auto_reset_minutes'] < 0)) $errors[] = "$label: auto_reset_minutes must be a non-negative number";
         if (isset($rule['protocol']) && !in_array($rule['protocol'], ['http', 'mqtt', 'webhook'], true)) {
             $errors[] = "$label: protocol must be 'http', 'mqtt', or 'webhook'";
         }
@@ -938,7 +938,7 @@ function htt_rule_conditions($rule) {
  * against current disk/array state. Returns
  * ['met'=>bool|null (null = data unavailable), 'reason'=>string].
  */
-function htt_eval_condition($cond, $disks, $array) {
+function htt_eval_condition($cond, $disks, $array, $state = [], $ruleNames = []) {
     $triggerType = $cond['trigger_type'] ?? 'temp';
     $direction = ($cond['direction'] ?? 'on') === 'off' ? 'off' : 'on';
 
@@ -947,6 +947,14 @@ function htt_eval_condition($cond, $disks, $array) {
         $active = $array['active'] && ($triggerType === 'parity_check' ? $array['is_parity_check'] : $array['is_rebuild']);
         $met = $direction === 'on' ? $active : !$active;
         return ['met' => $met, 'reason' => "$what " . ($active ? 'active' : 'inactive')];
+    }
+
+    if ($triggerType === 'rule_state') {
+        $targetId = $cond['rule_id'] ?? '';
+        $targetName = $ruleNames[$targetId] ?? ($targetId === '' ? '(no rule selected)' : $targetId);
+        $targetFired = !empty($state[$targetId]['fired']);
+        $met = $direction === 'on' ? $targetFired : !$targetFired;
+        return ['met' => $met, 'reason' => "'{$targetName}' " . ($targetFired ? 'fired' : 'idle')];
     }
 
     $metricFn = $triggerType === 'usage' ? 'htt_disk_usage_pct' : 'htt_disk_temp';
@@ -976,10 +984,14 @@ function htt_eval_condition($cond, $disks, $array) {
 function htt_test_conditions($rule) {
     $disks = htt_list_disks();
     $array = htt_array_status();
+    $state = htt_load_state();
+    $config = htt_load_config();
+    $ruleNames = [];
+    foreach ($config['rules'] as $r) $ruleNames[$r['id'] ?? ''] = $r['name'] ?? '?';
     $steps = [];
     $running = null;
     foreach (htt_rule_conditions($rule) as $idx => $cond) {
-        $result = htt_eval_condition($cond, $disks, $array);
+        $result = htt_eval_condition($cond, $disks, $array, $state, $ruleNames);
         $join = ($cond['join'] ?? 'and') === 'or' ? 'or' : 'and';
         if ($result['met'] === null) {
             $steps[] = ['join' => $idx > 0 ? $join : null, 'trigger_type' => $cond['trigger_type'] ?? 'temp', 'reason' => 'no data available (disk spun down, or usage unavailable)', 'met' => null, 'running' => null];
@@ -1021,7 +1033,7 @@ function htt_run_cycle() {
         $unavailable = false;
         $lastValue = null;
         foreach (htt_rule_conditions($rule) as $idx => $cond) {
-            $result = htt_eval_condition($cond, $disks, $array);
+            $result = htt_eval_condition($cond, $disks, $array, $state, $ruleNames);
             if ($result['met'] === null) { $unavailable = true; break; }
             if (($cond['trigger_type'] ?? 'temp') !== 'parity_check' && ($cond['trigger_type'] ?? 'temp') !== 'rebuild') {
                 $lastValue = $result['reason']; // last metric reading, for the webGUI badge/debug
@@ -1053,10 +1065,20 @@ function htt_run_cycle() {
         }
 
         if ($prevFired) {
-            // Already fired and condition still holds - nothing to do unless
-            // force_resend wants us to keep re-asserting every cycle (guards
-            // against drift if the device was toggled manually, or a previous
-            // send was silently dropped).
+            // Already fired and condition still holds - normally nothing to
+            // do, unless auto_reset_minutes says this has been fired long
+            // enough to clear and let it fire fresh again, or force_resend
+            // wants us to keep re-asserting every cycle (guards against
+            // drift if the device was toggled manually, or a previous send
+            // was silently dropped).
+            $autoResetMin = floatval($rule['auto_reset_minutes'] ?? 0);
+            $firedAt = $state[$id]['fired_at'] ?? null;
+            if ($autoResetMin > 0 && $firedAt !== null && (time() - $firedAt) >= $autoResetMin * 60) {
+                $state[$id]['fired'] = false;
+                unset($state[$id]['pending_since'], $state[$id]['fired_at']);
+                htt_log("Rule '{$rule['name']}': $reason, auto-reset after {$autoResetMin}m, may fire fresh next cycle");
+                continue;
+            }
             if (!empty($rule['force_resend'])) {
                 $ok = htt_send_command($config, $rule);
                 if ($ok) {
@@ -1084,23 +1106,9 @@ function htt_run_cycle() {
         $ok = htt_send_command($config, $rule);
         if ($ok) {
             $state[$id]['fired'] = true;
+            $state[$id]['fired_at'] = time();
             unset($state[$id]['pending_since']);
             htt_log("Rule '{$rule['name']}': $reason, fired");
-            // Reset any rules this one is configured to reset - e.g. an ON
-            // rule resetting its paired OFF rule's fired flag, so hysteresis
-            // pairs don't get stuck believing they already fired. Only on
-            // this not-fired -> fired transition, not on every force-resend
-            // re-assertion, which would otherwise reset the same rules every
-            // single poll cycle.
-            foreach (($rule['reset_rules'] ?? []) as $resetId) {
-                if ($resetId === $id) continue;
-                if (!empty($state[$resetId]['fired'])) {
-                    $state[$resetId]['fired'] = false;
-                    unset($state[$resetId]['pending_since']);
-                    $resetName = $ruleNames[$resetId] ?? $resetId;
-                    htt_log("Rule '{$rule['name']}': reset '{$resetName}''s fired flag");
-                }
-            }
         } else {
             htt_log("Rule '{$rule['name']}': $reason, send FAILED, will retry next cycle");
         }

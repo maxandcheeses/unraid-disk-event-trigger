@@ -187,6 +187,9 @@ function httDirectionLabels(triggerType) {
     if (triggerType === 'parity_check' || triggerType === 'rebuild') {
         return { on: 'Met while active (including if already running when checked)', off: 'Met while inactive' };
     }
+    if (triggerType === 'rule_state') {
+        return { on: 'Met while that rule is Fired', off: 'Met while that rule is Idle' };
+    }
     return { on: 'Met when value is ≥ threshold', off: 'Met when value is ≤ threshold' };
 }
 const HTT_ENDPOINT = '/plugins/unraid-disk-event-trigger/include/handler.php';
@@ -212,14 +215,12 @@ function httTogglePass(btn) {
     input.type = input.type === 'password' ? 'text' : 'password';
 }
 
-function httResetRulesCheckboxes(rule, i) {
-    const selected = rule.reset_rules || [];
-    const others = httRules.filter((r, j) => j !== i);
-    if (others.length === 0) return '<span style="opacity:0.6">(no other rules to reference)</span>';
-    return others.map(r => {
-        const checked = selected.includes(r.id) ? 'checked' : '';
-        return `<label><input type="checkbox" class="htt-reset-rules-one" value="${r.id}" ${checked}> ${(r.name||'Rule').replace(/</g,'&lt;')}</label><br>`;
-    }).join('');
+function httOtherRulesOptions(ruleIndex, selectedId) {
+    const others = httRules.filter((r, j) => j !== ruleIndex);
+    if (others.length === 0) return '<option value="">(no other rules)</option>';
+    return `<option value="">Select a rule...</option>` + others.map(r =>
+        `<option value="${r.id}" ${r.id===selectedId?'selected':''}>${(r.name||'Rule').replace(/</g,'&lt;')}</option>`
+    ).join('');
 }
 
 function httDiskCheckboxes(selected) {
@@ -243,6 +244,11 @@ function httCondSummary(cond) {
     if (triggerType === 'parity_check' || triggerType === 'rebuild') {
         const label = triggerType === 'parity_check' ? 'Parity check' : 'Array/data rebuild';
         return `${label} ${direction === 'off' ? 'inactive' : 'active'}`;
+    }
+    if (triggerType === 'rule_state') {
+        const targetRule = httRules.find(r => r.id === cond.rule_id);
+        const targetName = targetRule ? targetRule.name : '(no rule selected)';
+        return `'${(targetName||'Rule').replace(/</g,'&lt;')}' ${direction === 'off' ? 'Idle' : 'Fired'}`;
     }
     const label = triggerType === 'usage' ? 'Disk usage' : 'Disk temp';
     const unit = triggerType === 'usage' ? '%' : '°C';
@@ -270,6 +276,7 @@ function httConditionBlock(cond, ruleIndex, condIndex, totalConditions, ruleId) 
                     <option value="usage" ${triggerType==='usage'?'selected':''}>Disk usage %</option>
                     <option value="parity_check" ${triggerType==='parity_check'?'selected':''}>Parity check</option>
                     <option value="rebuild" ${triggerType==='rebuild'?'selected':''}>Array/data rebuild</option>
+                    <option value="rule_state" ${triggerType==='rule_state'?'selected':''}>Another rule's Fired/Idle state</option>
                 </select>`}
                 <button type="button" onclick="httMoveCondition(${ruleIndex},${condIndex},-1)" ${condIndex===0?'disabled':''} style="margin-left:8px" title="Move up">&#8593;</button>
                 <button type="button" onclick="httMoveCondition(${ruleIndex},${condIndex},1)" ${condIndex===totalConditions-1?'disabled':''} title="Move down">&#8595;</button>
@@ -283,6 +290,10 @@ function httConditionBlock(cond, ruleIndex, condIndex, totalConditions, ruleId) 
                     <option value="parity_check" ${triggerType==='parity_check'?'selected':''}>Parity check</option>
                     <option value="rebuild" ${triggerType==='rebuild'?'selected':''}>Array/data rebuild</option>
                 </select>` : ''}
+            <div class="row htt-cond-rulestate-row" style="display:${triggerType==='rule_state'?'':'none'}">
+                <label>Rule</label>
+                <select class="htt-cond-target-rule">${httOtherRulesOptions(ruleIndex, cond.rule_id||'')}</select>
+            </div>
             <div class="row htt-cond-disks-row" style="display:${isMetric?'':'none'}">
                 <label>Disks</label>
                 <div class="disk-list">${httDiskCheckboxes(cond.disks)}</div>
@@ -328,6 +339,7 @@ function httToggleCondTriggerType(sel) {
     block.querySelector('.htt-cond-disks-row').style.display = isMetric ? '' : 'none';
     block.querySelector('.htt-cond-aggregate-row').style.display = isMetric ? '' : 'none';
     block.querySelector('.htt-cond-threshold-row').style.display = isMetric ? '' : 'none';
+    block.querySelector('.htt-cond-rulestate-row').style.display = type === 'rule_state' ? '' : 'none';
     block.querySelector('.htt-cond-threshold-unit').textContent = isUsage ? '%' : '°C';
     const aggSel = block.querySelector('.htt-cond-aggregate');
     aggSel.querySelector('option[value="max"]').textContent = `Max (${isUsage ? 'fullest' : 'hottest'} disk)`;
@@ -586,8 +598,10 @@ function httRenderRules() {
                 <label style="min-width:auto"><input type="checkbox" class="htt-force-resend" ${rule.force_resend?'checked':''}> re-send this action every poll cycle while the conditions hold, even after it's already fired</label>
             </div>
             <div class="row">
-                <label>Also reset <span class="htt-help" title="When this rule fires (transitions from not-fired to fired), also clear the checked rules' own fired flag - e.g. an ON rule resetting its paired OFF rule so hysteresis pairs don't get stuck. Only happens on that transition, not on every force-resend re-assertion.">&#9432;</span></label>
-                <div class="disk-list">${httResetRulesCheckboxes(rule, i)}</div>
+                <label>Auto-reset <span class="htt-help" title="Once fired, automatically clear the fired flag after this many minutes even if the conditions still hold - the rule will then re-fire (subject to its delay) the next time conditions are checked. Useful as a periodic safety re-trigger, or so a rule doesn't stay 'fired' forever.">&#9432;</span></label>
+                <label style="min-width:auto"><input type="checkbox" class="htt-auto-reset-enabled" onchange="httToggleAutoReset(this)" ${(rule.auto_reset_minutes ?? 0) > 0 ? 'checked' : ''}> after
+                    <input type="number" class="htt-auto-reset-minutes" min="1" style="width:80px" value="${rule.auto_reset_minutes || 1440}" ${(rule.auto_reset_minutes ?? 0) > 0 ? '' : 'disabled'}> minutes (default 1440 = 24h)
+                </label>
             </div>
             <div class="row">
                 <label>Protocol</label>
@@ -681,6 +695,12 @@ function httToggleRuleConn(sel) {
     if (wrap) wrap.style.display = sel.value ? 'none' : '';
 }
 
+function httToggleAutoReset(checkbox) {
+    const input = checkbox.closest('label').querySelector('.htt-auto-reset-minutes');
+    input.disabled = !checkbox.checked;
+    if (checkbox.checked && !input.value) input.value = 1440;
+}
+
 function httToggleProto(sel) {
     const box = sel.closest('.rule-box');
     box.querySelector('.htt-http-block').classList.toggle('active', sel.value === 'http');
@@ -728,7 +748,7 @@ function httSaveRulesStructure() {
 
 function httAddRule() {
     httCollectRules(); // otherwise re-rendering every box would discard unsaved edits in any other rule
-    const newRule = { id: httUid(), name: 'New Rule', enabled: true, conditions: [{ trigger_type: 'temp', disks: ['all'], aggregate: 'max', direction: 'on', threshold: 40 }], delay_seconds: 0, force_resend: false, reset_rules: [], protocol: 'http', http: { state: 'on' }, mqtt: {}, webhook: {} };
+    const newRule = { id: httUid(), name: 'New Rule', enabled: true, conditions: [{ trigger_type: 'temp', disks: ['all'], aggregate: 'max', direction: 'on', threshold: 40 }], delay_seconds: 0, force_resend: false, auto_reset_minutes: 0, protocol: 'http', http: { state: 'on' }, mqtt: {}, webhook: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
     httRulesStructureDirty = true;
@@ -774,12 +794,14 @@ function httCollectRuleFromBox(box, orig) {
         const allChecked = cb.querySelector('.htt-disk-all').checked;
         const disks = allChecked ? ['all'] : Array.from(diskChecks).map(c => c.value);
         const joinEl = cb.querySelector('.htt-cond-join');
+        const targetRuleEl = cb.querySelector('.htt-cond-target-rule');
         return {
             trigger_type: cb.querySelector('.htt-cond-trigger-type').value,
             disks: disks,
             aggregate: cb.querySelector('.htt-cond-aggregate').value,
             direction: cb.querySelector('.htt-cond-direction').value,
             threshold: parseFloat(cb.querySelector('.htt-cond-threshold').value),
+            rule_id: targetRuleEl ? targetRuleEl.value : '',
             join: ci > 0 ? (joinEl ? joinEl.value : 'and') : 'and',
         };
     });
@@ -790,7 +812,7 @@ function httCollectRuleFromBox(box, orig) {
         conditions: conditions,
         delay_seconds: parseFloat(box.querySelector('.htt-delay').value) || 0,
         force_resend: box.querySelector('.htt-force-resend').checked,
-        reset_rules: Array.from(box.querySelectorAll('.htt-reset-rules-one:checked')).map(c => c.value),
+        auto_reset_minutes: box.querySelector('.htt-auto-reset-enabled').checked ? (parseFloat(box.querySelector('.htt-auto-reset-minutes').value) || 1440) : 0,
         protocol: box.querySelector('.htt-protocol').value,
         http: {
             state: box.querySelector('.htt-http-state').value,
@@ -901,7 +923,7 @@ function httTestConditions(i) {
         .then(r => r.json()).then(d => {
             if (!resultsEl) return;
             if (!d.ok) { resultsEl.innerHTML = `<div class="row" style="color:#cf5b5b">Error: ${d.error || 'unknown error'}</div>`; return; }
-            const typeLabels = { temp: 'Disk temperature', usage: 'Disk usage %', parity_check: 'Parity check', rebuild: 'Array/data rebuild' };
+            const typeLabels = { temp: 'Disk temperature', usage: 'Disk usage %', parity_check: 'Parity check', rebuild: 'Array/data rebuild', rule_state: 'Another rule\'s state' };
             let html = '<div style="border:1px solid #555;border-radius:4px;padding:8px;margin-top:6px">';
             d.steps.forEach((s, si) => {
                 const label = typeLabels[s.trigger_type] || s.trigger_type;

@@ -87,6 +87,7 @@ switch ($action) {
         $state = htt_load_state();
         $newFired = empty($state[$id]['fired']);
         $state[$id]['fired'] = $newFired;
+        if ($newFired) { $state[$id]['fired_at'] = time(); } else { unset($state[$id]['fired_at']); }
         unset($state[$id]['pending_since']);
         htt_save_state($state);
         htt_log("Fired state manually " . ($newFired ? 'set' : 'cleared') . " for rule id '$id'");
@@ -134,6 +135,7 @@ switch ($action) {
             // manual test send, so it doesn't immediately re-fire next cycle.
             $state = htt_load_state();
             $state[$rule['id']]['fired'] = true;
+            $state[$rule['id']]['fired_at'] = time();
             htt_save_state($state);
         }
         respond(['ok' => $ok]);
@@ -169,7 +171,9 @@ switch ($action) {
                 $h = htt_resolve_protocol($config, $rule, 'http');
                 $wantState = $h['state'] ?? ($rule['action_direction'] ?? 'on');
                 $state = htt_load_state();
-                $state[$rule['id']]['fired'] = ($result['state'] === $wantState);
+                $matches = ($result['state'] === $wantState);
+                $state[$rule['id']]['fired'] = $matches;
+                if ($matches) { $state[$rule['id']]['fired_at'] = time(); } else { unset($state[$rule['id']]['fired_at']); }
                 htt_save_state($state);
             }
         } else {
