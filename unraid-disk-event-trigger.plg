@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.10">
+<!ENTITY version   "2026.08.03.11">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "66538748285d652c76754b0aaf64af0e">
+<!ENTITY srcMD5     "6001d854bcf011bf149d0aefc044f618">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.11
+- Change: added dividers and labels in the webhook rule editor clarifying that headers/auth/insecure-cert are shared across ON, OFF, and the state check, and that the state URL/method are only used by "Check Device State" - previously these sat directly below the OFF fields with no visual separation, making them look OFF-specific.
+
 ###2026.08.03.10
 - Fix: updates silently failed to actually replace the installed files since the very first release, even though Settings &gt; Plugins showed the new version number as "up-to-date". The locally-installed package file was always named the same literal `unraid-disk-event-trigger.txz` with no version in the filename, so Slackware's `upgradepkg` saw an identical package name/version on every release and skipped reinstalling - only the `.plg`'s own version metadata (a separate field) was actually being refreshed. The package is now installed under a properly versioned filename (`unraid-disk-event-trigger-&lt;version&gt;-noarch-1.txz`) so each release is correctly detected and installed. If you're on an older version, this fix itself needs one more manual update/reinstall to take effect (via Check for Updates, or reinstalling with the .plg URL) - after that, updates will apply correctly going forward.
 
