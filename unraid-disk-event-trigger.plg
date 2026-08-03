@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02.12">
+<!ENTITY version   "2026.08.03">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "7efe37b5128746195a8d74cc85dc151b">
+<!ENTITY srcMD5     "aa949a37af42e55b487db82da27b4f5c">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.03
+- Add: custom disk+thermometer plugin icon, shown in the Utilities menu and the Settings/Plugins listing (previously the built-in generic "temperature" icon).
+
 ###2026.08.02.12
 - Fix: the delay tooltip was a plain `title` on the number input, which is easy to miss. Replaced with a visible (i) info icon next to each delay field.
 
