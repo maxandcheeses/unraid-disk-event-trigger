@@ -155,16 +155,28 @@ function htt_send_http($rule, $on) {
  * Implemented raw (no external mosquitto_pub dependency) so it also works
  * against zigbee2mqtt topics/payloads.
  */
-function htt_mqtt_publish($host, $port, $clientId, $username, $password, $topic, $payload, $timeout = 5) {
+const HTT_MQTT_CONNACK_REASONS = [
+    0 => 'connection accepted',
+    1 => 'refused: unacceptable protocol version',
+    2 => 'refused: identifier rejected',
+    3 => 'refused: server unavailable',
+    4 => 'refused: bad username or password',
+    5 => 'refused: not authorized',
+];
+
+/**
+ * Open a socket to the broker and complete the MQTT CONNECT/CONNACK
+ * handshake. Returns ['ok'=>bool, 'sock'=>resource|null, 'error'=>string].
+ * Caller owns the socket on success and must fclose() it when done.
+ */
+function htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout = 5) {
     $errno = 0; $errstr = '';
     $sock = @stream_socket_client("tcp://$host:$port", $errno, $errstr, $timeout);
     if (!$sock) {
-        htt_log("MQTT connect failed to $host:$port - $errstr");
-        return false;
+        return ['ok' => false, 'sock' => null, 'error' => "connect failed: $errstr"];
     }
     stream_set_timeout($sock, $timeout);
 
-    // --- CONNECT packet ---
     $protoName = htt_mqtt_str('MQTT');
     $protoLevel = chr(4);
     $connectFlags = 0x02; // clean session
@@ -183,11 +195,27 @@ function htt_mqtt_publish($host, $port, $clientId, $username, $password, $topic,
     fwrite($sock, $connectPkt);
 
     $connack = fread($sock, 4);
-    if (strlen($connack) < 4 || ord($connack[0]) >> 4 !== 2 || ord($connack[3]) !== 0) {
-        htt_log("MQTT CONNACK failed/rejected from $host:$port");
+    if (strlen($connack) < 4 || ord($connack[0]) >> 4 !== 2) {
         fclose($sock);
+        return ['ok' => false, 'sock' => null, 'error' => 'no/invalid CONNACK received (wrong port, not an MQTT broker, or connection dropped)'];
+    }
+    $code = ord($connack[3]);
+    if ($code !== 0) {
+        fclose($sock);
+        $reason = HTT_MQTT_CONNACK_REASONS[$code] ?? "unknown reason code $code";
+        return ['ok' => false, 'sock' => null, 'error' => $reason];
+    }
+
+    return ['ok' => true, 'sock' => $sock, 'error' => ''];
+}
+
+function htt_mqtt_publish($host, $port, $clientId, $username, $password, $topic, $payload, $timeout = 5) {
+    $conn = htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout);
+    if (!$conn['ok']) {
+        htt_log("MQTT connect failed to $host:$port - {$conn['error']}");
         return false;
     }
+    $sock = $conn['sock'];
 
     // --- PUBLISH packet (QoS 0) ---
     $body = htt_mqtt_str($topic) . $payload;
@@ -198,6 +226,21 @@ function htt_mqtt_publish($host, $port, $clientId, $username, $password, $topic,
     fwrite($sock, chr(0xE0) . chr(0x00));
     fclose($sock);
     return true;
+}
+
+/**
+ * Test-only: verify we can reach the broker and authenticate, without
+ * publishing anything. Returns ['ok'=>bool, 'error'=>string].
+ */
+function htt_mqtt_test_connection($host, $port, $username, $password, $timeout = 5) {
+    if ($host === '') return ['ok' => false, 'error' => 'no broker host configured'];
+    $clientId = 'httrigger-test-' . substr(md5(microtime()), 0, 8);
+    $conn = htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout);
+    if ($conn['ok']) {
+        fwrite($conn['sock'], chr(0xE0) . chr(0x00)); // DISCONNECT
+        fclose($conn['sock']);
+    }
+    return ['ok' => $conn['ok'], 'error' => $conn['error']];
 }
 
 function htt_mqtt_str($s) { return pack('n', strlen($s)) . $s; }

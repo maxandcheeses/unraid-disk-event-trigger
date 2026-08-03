@@ -52,6 +52,14 @@ switch ($action) {
         $ok = htt_send_command($rule, $on);
         respond(['ok' => $ok]);
 
+    case 'test_mqtt':
+        $rule = json_decode($_POST['rule'] ?? '', true);
+        if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
+        $m = $rule['mqtt'] ?? [];
+        $result = htt_mqtt_test_connection($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '');
+        htt_log("MQTT connection test for rule '{$rule['name']}': " . ($result['ok'] ? 'OK' : $result['error']));
+        respond($result);
+
     default:
         respond(['ok' => false, 'error' => 'unknown action']);
 }

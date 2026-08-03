@@ -6,6 +6,7 @@ Icon="temperature.png"
 require_once '/usr/local/emhttp/plugins/unraid-disk-event-trigger/include/lib.php';
 $config = htt_load_config();
 $disks = htt_list_disks();
+if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 ?>
 <style>
 #htt-wrap { max-width: 1100px; }
@@ -13,11 +14,18 @@ $disks = htt_list_disks();
 #htt-wrap th, #htt-wrap td { padding: 6px 8px; border-bottom: 1px solid #444; text-align: left; vertical-align: top; }
 #htt-wrap .rule-box { border: 1px solid #555; border-radius: 4px; padding: 10px; margin-bottom: 10px; }
 #htt-wrap .rule-box h4 { margin: 0 0 8px 0; }
+#htt-wrap .rule-box.collapsed h4 { margin-bottom: 0; }
+#htt-wrap .rule-box.collapsed .rule-body { display: none; }
+#htt-wrap .htt-rule-toggle { cursor: pointer; display: inline-block; width: 16px; text-align: center; user-select: none; }
 #htt-wrap label { display: inline-block; min-width: 130px; }
 #htt-wrap input[type=text], #htt-wrap input[type=number], #htt-wrap input[type=password] { width: 220px; }
 #htt-wrap .row { margin-bottom: 6px; }
 #htt-wrap .disk-list { max-height: 120px; overflow-y: auto; border: 1px solid #555; padding: 6px; width: 300px; }
 #htt-wrap .proto-block { display: none; margin-top: 6px; padding-left: 10px; border-left: 2px solid #666; }
+#htt-wrap .htt-pass-wrap { display: inline-flex; align-items: center; width: 220px; }
+#htt-wrap .htt-pass-wrap input { width: 100%; flex: 1; }
+#htt-wrap .htt-pass-toggle { margin-left: -26px; background: none; border: none; cursor: pointer; padding: 2px 6px; line-height: 1; font-size: 14px; opacity: 0.7; }
+#htt-wrap .htt-pass-toggle:hover { opacity: 1; }
 #htt-wrap .proto-block.active { display: block; }
 #htt-status { font-family: monospace; white-space: pre-wrap; font-size: 12px; max-height: 300px; overflow-y: auto; background: rgba(128,128,128,0.1); padding: 8px; }
 </style>
@@ -71,8 +79,29 @@ $disks = htt_list_disks();
 <script>
 const HTT_DISKS = <?= json_encode(array_values($disks)) ?>;
 let httRules = <?= json_encode($config['rules']) ?>;
+const HTT_CSRF = '<?= htmlspecialchars($var['csrf_token'] ?? '', ENT_QUOTES) ?>';
+const HTT_ENDPOINT = '/plugins/unraid-disk-event-trigger/include/handler.php';
+
+function httPost(body) {
+    return fetch(HTT_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        credentials: 'same-origin',
+        body: body + '&csrf_token=' + encodeURIComponent(HTT_CSRF),
+    });
+}
 
 function httUid() { return Math.random().toString(16).slice(2, 10); }
+
+function httPassField(cls, value) {
+    const esc = String(value).replace(/"/g, '&quot;');
+    return `<span class="htt-pass-wrap"><input type="password" class="${cls}" value="${esc}"><button type="button" class="htt-pass-toggle" title="Show/hide password" onclick="httTogglePass(this)">&#128065;</button></span>`;
+}
+
+function httTogglePass(btn) {
+    const input = btn.previousElementSibling;
+    input.type = input.type === 'password' ? 'text' : 'password';
+}
 
 function httDiskCheckboxes(selected) {
     selected = selected || ['all'];
@@ -86,21 +115,28 @@ function httDiskCheckboxes(selected) {
     return html;
 }
 
+let httCollapsedOverride = {}; // ruleId -> bool, only set once the user explicitly toggles a rule
+
 function httRenderRules() {
     const wrap = document.getElementById('htt-rules');
     wrap.innerHTML = '';
     httRules.forEach((rule, i) => {
+        const key = rule.id || ('idx' + i);
+        const collapsed = key in httCollapsedOverride ? httCollapsedOverride[key] : (httRules.length > 1);
+
         const box = document.createElement('div');
-        box.className = 'rule-box';
+        box.className = 'rule-box' + (collapsed ? ' collapsed' : '');
         box.dataset.index = i;
         box.innerHTML = `
             <h4>
+                <span class="htt-rule-toggle" onclick="httToggleCollapse(${i})">${collapsed ? '&#9656;' : '&#9662;'}</span>
                 <input type="checkbox" ${rule.enabled ? 'checked' : ''} class="htt-enabled">
                 <input type="text" class="htt-name" value="${(rule.name||'').replace(/"/g,'&quot;')}" placeholder="Rule name" style="width:200px">
                 <button type="button" onclick="httRemoveRule(${i})" style="float:right">Remove</button>
                 <button type="button" onclick="httTestRule(${i}, true)" style="float:right;margin-right:6px">Test ON</button>
                 <button type="button" onclick="httTestRule(${i}, false)" style="float:right;margin-right:6px">Test OFF</button>
             </h4>
+            <div class="rule-body">
             <div class="row">
                 <label>Disks</label>
                 <div class="disk-list">${httDiskCheckboxes(rule.disks)}</div>
@@ -137,17 +173,19 @@ function httRenderRules() {
                 <div class="row"><label>Device base URL</label><input type="text" class="htt-http-url" value="${(rule.http?.base_url)||''}" placeholder="http://192.168.1.50"></div>
                 <div class="row"><label>Relay index (optional)</label><input type="text" class="htt-http-idx" value="${(rule.http?.device_index)||''}" placeholder="e.g. 2 for Power2"></div>
                 <div class="row"><label>Username</label><input type="text" class="htt-http-user" value="${(rule.http?.username)||''}"></div>
-                <div class="row"><label>Password</label><input type="password" class="htt-http-pass" value="${(rule.http?.password)||''}"></div>
+                <div class="row"><label>Password</label>${httPassField('htt-http-pass', (rule.http?.password)||'')}</div>
             </div>
             <div class="proto-block htt-mqtt-block ${rule.protocol==='mqtt'?'active':''}">
                 <div class="row"><label>Broker host</label><input type="text" class="htt-mqtt-host" value="${(rule.mqtt?.host)||''}" placeholder="192.168.1.10"></div>
                 <div class="row"><label>Broker port</label><input type="number" class="htt-mqtt-port" value="${(rule.mqtt?.port)||1883}"></div>
                 <div class="row"><label>Username</label><input type="text" class="htt-mqtt-user" value="${(rule.mqtt?.username)||''}"></div>
-                <div class="row"><label>Password</label><input type="password" class="htt-mqtt-pass" value="${(rule.mqtt?.password)||''}"></div>
+                <div class="row"><label>Password</label>${httPassField('htt-mqtt-pass', (rule.mqtt?.password)||'')}</div>
+                <div class="row"><button type="button" onclick="httTestMqtt(${i})">Test MQTT Connection</button></div>
                 <div class="row"><label>ON topic</label><input type="text" class="htt-mqtt-ontopic" value="${(rule.mqtt?.on_topic)||''}" placeholder="cmnd/tasmota_xx/POWER  or  zigbee2mqtt/plug/set"></div>
                 <div class="row"><label>ON payload</label><input type="text" class="htt-mqtt-onpayload" value="${(rule.mqtt?.on_payload)||'ON'}"></div>
                 <div class="row"><label>OFF topic</label><input type="text" class="htt-mqtt-offtopic" value="${(rule.mqtt?.off_topic)||''}" placeholder="leave blank to reuse ON topic"></div>
                 <div class="row"><label>OFF payload</label><input type="text" class="htt-mqtt-offpayload" value="${(rule.mqtt?.off_payload)||'OFF'}"></div>
+            </div>
             </div>
         `;
         wrap.appendChild(box);
@@ -160,8 +198,18 @@ function httToggleProto(sel) {
     box.querySelector('.htt-mqtt-block').classList.toggle('active', sel.value === 'mqtt');
 }
 
+function httToggleCollapse(i) {
+    const rule = httRules[i];
+    const key = rule.id || ('idx' + i);
+    const currentlyCollapsed = key in httCollapsedOverride ? httCollapsedOverride[key] : (httRules.length > 1);
+    httCollapsedOverride[key] = !currentlyCollapsed;
+    httRenderRules();
+}
+
 function httAddRule() {
-    httRules.push({ id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], aggregate: 'max', on_temp: 40, off_temp: 35, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {} });
+    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], aggregate: 'max', on_temp: 40, off_temp: 35, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {} };
+    httRules.push(newRule);
+    httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
     httRenderRules();
 }
 
@@ -216,37 +264,36 @@ function httCollectRules() {
 function httSaveConfig() {
     const rules = httCollectRules();
     const config = { poll_interval: parseInt(document.getElementById('htt-poll-interval').value) || 60, rules: rules };
-    fetch('/plugins/unraid-disk-event-trigger/include/handler.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'action=save_config&config=' + encodeURIComponent(JSON.stringify(config)),
-    }).then(r => r.json()).then(d => {
-        document.getElementById('htt-save-msg').textContent = d.ok ? ' Saved and applied.' : ' Error saving.';
-        setTimeout(() => document.getElementById('htt-save-msg').textContent = '', 3000);
-        httRenderRules();
-    });
+    httPost('action=save_config&config=' + encodeURIComponent(JSON.stringify(config)))
+        .then(r => r.json()).then(d => {
+            document.getElementById('htt-save-msg').textContent = d.ok ? ' Saved and applied.' : ' Error saving: ' + (d.error || 'unknown error');
+            setTimeout(() => document.getElementById('htt-save-msg').textContent = '', 3000);
+            httRenderRules();
+        }).catch(err => {
+            document.getElementById('htt-save-msg').textContent = ' Error saving: ' + err;
+        });
 }
 
 function httTestRule(i, on) {
     httCollectRules();
     const rule = httRules[i];
-    fetch('/plugins/unraid-disk-event-trigger/include/handler.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'action=test_command&rule=' + encodeURIComponent(JSON.stringify(rule)) + '&on=' + (on ? '1' : '0'),
-    }).then(r => r.json()).then(d => alert(d.ok ? 'Command sent successfully' : 'Command failed - check log'));
+    httPost('action=test_command&rule=' + encodeURIComponent(JSON.stringify(rule)) + '&on=' + (on ? '1' : '0'))
+        .then(r => r.json()).then(d => alert(d.ok ? 'Command sent successfully' : 'Command failed - check log'));
+}
+
+function httTestMqtt(i) {
+    httCollectRules();
+    const rule = httRules[i];
+    httPost('action=test_mqtt&rule=' + encodeURIComponent(JSON.stringify(rule)))
+        .then(r => r.json()).then(d => alert(d.ok ? 'MQTT connection OK' : 'MQTT connection failed: ' + (d.error || 'unknown error')));
 }
 
 function httServiceControl(cmd) {
-    fetch('/plugins/unraid-disk-event-trigger/include/handler.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'action=service_control&cmd=' + cmd,
-    }).then(() => setTimeout(httLoadStatus, 1500));
+    httPost('action=service_control&cmd=' + cmd).then(() => setTimeout(httLoadStatus, 1500));
 }
 
 function httLoadStatus() {
-    fetch('/plugins/unraid-disk-event-trigger/include/handler.php?action=get_status').then(r => r.json()).then(d => {
+    fetch(HTT_ENDPOINT + '?action=get_status', { credentials: 'same-origin' }).then(r => r.json()).then(d => {
         document.getElementById('htt-service-status').textContent = d.service_status;
         const a = d.array || {};
         document.getElementById('htt-array-status').textContent = a.active
@@ -261,7 +308,7 @@ function httLoadStatus() {
 }
 
 function httLoadLog() {
-    fetch('/plugins/unraid-disk-event-trigger/include/handler.php?action=get_log').then(r => r.json()).then(d => {
+    fetch(HTT_ENDPOINT + '?action=get_log', { credentials: 'same-origin' }).then(r => r.json()).then(d => {
         document.getElementById('htt-log').innerHTML = '<div id="htt-status">' + (d.log || '(empty)').replace(/</g,'&lt;') + '</div>';
     });
 }
