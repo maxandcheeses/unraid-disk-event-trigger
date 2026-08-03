@@ -325,6 +325,7 @@ function httToggleTriggerType(sel) {
 }
 
 function httToggleCollapse(i) {
+    httCollectRules(); // otherwise re-rendering every box would discard unsaved edits in any other rule
     const rule = httRules[i];
     const key = rule.id || ('idx' + i);
     const currentlyCollapsed = key in httCollapsedOverride ? httCollapsedOverride[key] : (httRules.length > 1);
@@ -333,6 +334,7 @@ function httToggleCollapse(i) {
 }
 
 function httAddRule() {
+    httCollectRules(); // otherwise re-rendering every box would discard unsaved edits in any other rule
     const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], trigger_type: 'temp', aggregate: 'max', direction: 'on', threshold: 40, delay_seconds: 0, force_resend: false, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
