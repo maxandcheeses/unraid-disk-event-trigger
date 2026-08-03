@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.16">
+<!ENTITY version   "2026.08.03.17">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "2bf4a25ea73d433444efb3813ef0f031">
@@ -11,6 +11,10 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.17
+- Add: global **Connections** - define a named MQTT broker or HTTP/webhook endpoint once under Global Settings, then pick it from any rule's protocol dropdown instead of re-entering host/port/credentials per rule. Rules can still enter connection details manually ("Custom") as before.
+- Change: Global Settings and Connections now each have their own Save &amp; Apply button, and each rule has its own Save &amp; Apply button, instead of one button saving every rule and setting at once. Adding/removing/reordering/duplicating a rule still saves immediately.
+
 ###2026.08.03.16
 - Fix: folding/unfolding a rule (or adding a new one) re-rendered every rule box from the in-memory rules array without first syncing unsaved DOM edits back into it - so editing one rule and then folding/unfolding *any* rule (or clicking "+ Add Rule") silently discarded those edits. Both actions now collect current form values before re-rendering.
 - Fix: the rule header's Remove/Duplicate/Move/Test buttons used `float:right`, which has no effect inside the header's flex layout - they just sat in DOM order after the state badge, shifting left/right whenever the badge's text changed length ("Idle" vs "Fired: ON"). Wrapped them in their own right-aligned flex group and gave the badge a fixed minimum width so neither shifts anymore.

@@ -23,8 +23,38 @@ function htt_default_config() {
     return [
         'enabled' => true,
         'poll_interval' => 60,
+        'connections' => [],
         'rules' => [],
     ];
+}
+
+/** Find a saved global connection by id and type ('http', 'mqtt', or 'webhook'). */
+function htt_find_connection($config, $type, $id) {
+    if (empty($id)) return null;
+    foreach (($config['connections'] ?? []) as $c) {
+        if (($c['id'] ?? '') === $id && ($c['type'] ?? '') === $type) return $c;
+    }
+    return null;
+}
+
+/**
+ * Resolve a rule's protocol block ($rule['http']/['mqtt']/['webhook']),
+ * filling in connection-level fields (host/port/auth/etc.) from a saved
+ * global connection when the rule references one via connection_id.
+ * Rule-level fields (which only exist for a "Custom" rule not tied to a
+ * saved connection) always win if both are present.
+ */
+function htt_resolve_protocol($config, $rule, $type) {
+    $fields = $rule[$type] ?? [];
+    $conn = htt_find_connection($config, $type, $fields['connection_id'] ?? '');
+    if (!$conn) return $fields;
+    foreach ($conn as $k => $v) {
+        if (in_array($k, ['id', 'name', 'type'], true)) continue;
+        if (!array_key_exists($k, $fields) || $fields[$k] === '' || $fields[$k] === null) {
+            $fields[$k] = $v;
+        }
+    }
+    return $fields;
 }
 
 function htt_load_config() {
@@ -57,6 +87,19 @@ function htt_validate_config($config) {
     if (isset($config['rules']) && !is_array($config['rules'])) {
         $errors[] = 'rules must be a list';
         return $errors;
+    }
+    if (isset($config['connections']) && !is_array($config['connections'])) {
+        $errors[] = 'connections must be a list';
+        return $errors;
+    }
+
+    foreach (($config['connections'] ?? []) as $idx => $conn) {
+        $label = "connection #" . ($idx + 1) . (is_array($conn) && !empty($conn['name']) ? " ('{$conn['name']}')" : '');
+        if (!is_array($conn)) { $errors[] = "$label must be a mapping"; continue; }
+        if (empty($conn['name'])) $errors[] = "$label: name is required";
+        if (!in_array($conn['type'] ?? '', ['http', 'mqtt', 'webhook'], true)) {
+            $errors[] = "$label: type must be 'http', 'mqtt', or 'webhook'";
+        }
     }
 
     foreach (($config['rules'] ?? []) as $idx => $rule) {
@@ -373,15 +416,16 @@ function htt_aggregate($temps, $mode) {
 }
 
 /** Send an HTTP command to a Tasmota device: base_url like http://192.168.1.50 */
-function htt_send_http($rule, $on) {
-    $base = rtrim($rule['http']['base_url'] ?? '', '/');
+function htt_send_http($config, $rule, $on) {
+    $h = htt_resolve_protocol($config, $rule, 'http');
+    $base = rtrim($h['base_url'] ?? '', '/');
     if ($base === '') return false;
-    $idx = $rule['http']['device_index'] ?? '';
+    $idx = $h['device_index'] ?? '';
     $cmndPrefix = $idx !== '' ? "Power{$idx}" : 'Power';
     $cmnd = $on ? "{$cmndPrefix}%20On" : "{$cmndPrefix}%20Off";
     $url = "$base/cm?cmnd=$cmnd";
-    if (!empty($rule['http']['username'])) {
-        $url .= '&user=' . urlencode($rule['http']['username']) . '&password=' . urlencode($rule['http']['password'] ?? '');
+    if (!empty($h['username'])) {
+        $url .= '&user=' . urlencode($h['username']) . '&password=' . urlencode($h['password'] ?? '');
     }
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -505,14 +549,15 @@ function htt_mqtt_test_connection($host, $port, $username, $password, $timeout =
  * API (does not change anything). Returns
  * ['ok'=>bool, 'state'=>'on'|'off'|null, 'raw'=>string, 'error'=>string].
  */
-function htt_query_http_state($rule) {
-    $base = rtrim($rule['http']['base_url'] ?? '', '/');
+function htt_query_http_state($config, $rule) {
+    $h = htt_resolve_protocol($config, $rule, 'http');
+    $base = rtrim($h['base_url'] ?? '', '/');
     if ($base === '') return ['ok' => false, 'state' => null, 'raw' => '', 'error' => 'no base URL configured'];
-    $idx = $rule['http']['device_index'] ?? '';
+    $idx = $h['device_index'] ?? '';
     $cmndPrefix = $idx !== '' ? "Power{$idx}" : 'Power';
     $url = "$base/cm?cmnd=" . urlencode($cmndPrefix);
-    if (!empty($rule['http']['username'])) {
-        $url .= '&user=' . urlencode($rule['http']['username']) . '&password=' . urlencode($rule['http']['password'] ?? '');
+    if (!empty($h['username'])) {
+        $url .= '&user=' . urlencode($h['username']) . '&password=' . urlencode($h['password'] ?? '');
     }
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -614,8 +659,8 @@ function htt_mqtt_read_one($host, $port, $username, $password, $topic, $timeout 
  * a bare string ("ON"/"OFF") or JSON (e.g. zigbee2mqtt's {"state":"ON"});
  * state_json_key names which JSON field to read (default "state").
  */
-function htt_query_mqtt_state($rule) {
-    $m = $rule['mqtt'] ?? [];
+function htt_query_mqtt_state($config, $rule) {
+    $m = htt_resolve_protocol($config, $rule, 'mqtt');
     $topic = $m['state_topic'] ?? '';
     // zigbee2mqtt (and similar bridges) often don't retain state and only
     // report on change; asking on its .../get topic prompts an immediate
@@ -659,8 +704,8 @@ function htt_mqtt_len($len) {
     return $out;
 }
 
-function htt_send_mqtt($rule, $on) {
-    $m = $rule['mqtt'] ?? [];
+function htt_send_mqtt($config, $rule, $on) {
+    $m = htt_resolve_protocol($config, $rule, 'mqtt');
     $host = $m['host'] ?? '';
     if ($host === '') return false;
     $port = intval($m['port'] ?? 1883);
@@ -733,8 +778,8 @@ function htt_webhook_request($url, $method, $body, $headersRaw, $username, $pass
     return ['ok' => true, 'status' => $status, 'body' => $result, 'error' => ''];
 }
 
-function htt_send_webhook($rule, $on) {
-    $w = $rule['webhook'] ?? [];
+function htt_send_webhook($config, $rule, $on) {
+    $w = htt_resolve_protocol($config, $rule, 'webhook');
     $url = trim($w['url'] ?? '');
     if ($url === '') return false;
     $method = $w['method'] ?? 'GET';
@@ -760,8 +805,8 @@ function htt_send_webhook($rule, $on) {
  * there's no reliable convention to parse. Lets users confirm the URL,
  * auth, and headers are wired up correctly.
  */
-function htt_query_webhook_state($rule) {
-    $w = $rule['webhook'] ?? [];
+function htt_query_webhook_state($config, $rule) {
+    $w = htt_resolve_protocol($config, $rule, 'webhook');
     $url = trim($w['state_url'] ?? '');
     if ($url === '') return ['ok' => false, 'state' => null, 'raw' => '', 'error' => 'no state URL configured'];
     $method = $w['state_method'] ?? 'GET';
@@ -779,12 +824,12 @@ function htt_query_webhook_state($rule) {
  * on/off action - a caller (poll cycle, manual Test button) never needs
  * to separately decide which way to fire.
  */
-function htt_send_command($rule) {
+function htt_send_command($config, $rule) {
     $on = (($rule['direction'] ?? 'on') !== 'off');
     $protocol = $rule['protocol'] ?? 'http';
-    if ($protocol === 'mqtt') return htt_send_mqtt($rule, $on);
-    if ($protocol === 'webhook') return htt_send_webhook($rule, $on);
-    return htt_send_http($rule, $on);
+    if ($protocol === 'mqtt') return htt_send_mqtt($config, $rule, $on);
+    if ($protocol === 'webhook') return htt_send_webhook($config, $rule, $on);
+    return htt_send_http($config, $rule, $on);
 }
 
 /**
@@ -896,7 +941,7 @@ function htt_run_cycle() {
             // against drift if the device was toggled manually, or a previous
             // send was silently dropped).
             if (!empty($rule['force_resend'])) {
-                $ok = htt_send_command($rule);
+                $ok = htt_send_command($config, $rule);
                 if ($ok) {
                     htt_log("Rule '{$rule['name']}': $reason, re-asserted {$direction} (force resend)");
                 } else {
@@ -919,7 +964,7 @@ function htt_run_cycle() {
         $delayElapsed = $delaySec <= 0 || (time() - $state[$id]['pending_since']) >= $delaySec;
         if (!$delayElapsed) continue;
 
-        $ok = htt_send_command($rule);
+        $ok = htt_send_command($config, $rule);
         if ($ok) {
             $state[$id]['fired'] = true;
             unset($state[$id]['pending_since']);

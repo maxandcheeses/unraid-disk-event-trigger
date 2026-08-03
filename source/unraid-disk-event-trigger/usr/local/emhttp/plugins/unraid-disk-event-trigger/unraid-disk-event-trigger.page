@@ -44,7 +44,7 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 
 <div id="htt-wrap">
   <div id="htt-plugin-toggle">
-    <label><input type="checkbox" id="htt-plugin-enabled" <?= ($config['enabled'] ?? true) ? 'checked' : '' ?> onchange="httTogglePluginEnabled(this)"> Plugin enabled</label>
+    <label><input type="checkbox" id="htt-plugin-enabled" <?= ($config['enabled'] ?? true) ? 'checked' : '' ?> onchange="httSaveGlobal()"> Plugin enabled</label>
     <span id="htt-plugin-toggle-note">When disabled, the background poller is stopped entirely - nothing is monitored and no commands are sent.</span>
   </div>
 
@@ -81,12 +81,24 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
     <label>Poll interval (seconds)</label>
     <input type="number" id="htt-poll-interval" min="10" value="<?= intval($config['poll_interval']) ?>">
   </div>
+  <div class="row">
+    <button type="button" onclick="httSaveGlobal()">Save &amp; Apply</button>
+    <span id="htt-global-save-msg"></span>
+  </div>
+
+  <h3>Connections</h3>
+  <div class="row" style="opacity:0.75">Define shared MQTT brokers / HTTP or webhook endpoints once here, then pick them from any rule below.</div>
+  <div id="htt-connections"></div>
+  <div class="row">
+    <button type="button" onclick="httAddConnection()">+ Add Connection</button>
+    &nbsp;&nbsp;
+    <button type="button" onclick="httSaveConnections()">Save &amp; Apply</button>
+    <span id="htt-connections-save-msg"></span>
+  </div>
 
   <h3>Rules</h3>
   <div id="htt-rules"></div>
   <button type="button" onclick="httAddRule()">+ Add Rule</button>
-  &nbsp;&nbsp;
-  <button type="button" onclick="httSaveConfig()">Save &amp; Apply</button>
   <span id="htt-save-msg"></span>
 
   <h3>Backup / YAML editor</h3>
@@ -107,6 +119,7 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 <script>
 const HTT_DISKS = <?= json_encode(array_values($disks)) ?>;
 let httRules = <?= json_encode($config['rules']) ?>;
+let httConnections = <?= json_encode($config['connections'] ?? []) ?>;
 let httLastState = {}; // ruleId -> {fired, last_value, ...}, cached across re-renders so folding doesn't blank the badge
 const HTT_CSRF = '<?= htmlspecialchars($var['csrf_token'] ?? '', ENT_QUOTES) ?>';
 
@@ -159,6 +172,134 @@ function httDiskCheckboxes(selected) {
         html += `<label><input type="checkbox" class="htt-disk-one" value="${d.name}" ${checked} ${disabled}> ${d.name} (${d.device})</label><br>`;
     });
     return html;
+}
+
+function httConnectionOptions(type, selectedId) {
+    let html = `<option value="">Custom (enter below)</option>`;
+    httConnections.filter(c => c.type === type).forEach(c => {
+        html += `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${(c.name||'').replace(/</g,'&lt;')}</option>`;
+    });
+    return html;
+}
+
+function httRenderConnections() {
+    const wrap = document.getElementById('htt-connections');
+    wrap.innerHTML = '';
+    httConnections.forEach((conn, i) => {
+        const box = document.createElement('div');
+        box.className = 'rule-box';
+        box.dataset.index = i;
+        const type = conn.type || 'mqtt';
+        box.innerHTML = `
+            <h4>
+                <input type="text" class="htt-conn-name" value="${(conn.name||'').replace(/"/g,'&quot;')}" placeholder="Connection name" style="width:200px">
+                <select class="htt-conn-type" onchange="httToggleConnType(this)">
+                    <option value="http" ${type==='http'?'selected':''}>Tasmota HTTP</option>
+                    <option value="mqtt" ${type==='mqtt'?'selected':''}>MQTT</option>
+                    <option value="webhook" ${type==='webhook'?'selected':''}>Generic HTTP/HTTPS webhook</option>
+                </select>
+                <span class="htt-rule-actions">
+                    <button type="button" onclick="httRemoveConnection(${i})">Remove</button>
+                </span>
+            </h4>
+            <div class="proto-block htt-conn-http-block ${type==='http'?'active':''}">
+                <div class="row"><label>Device base URL</label><input type="text" class="htt-conn-http-url" value="${(conn.base_url)||''}" placeholder="http://192.168.1.50"></div>
+                <div class="row"><label>Username</label><input type="text" class="htt-conn-http-user" value="${(conn.username)||''}"></div>
+                <div class="row"><label>Password</label>${httPassField('htt-conn-http-pass', conn.password||'')}</div>
+            </div>
+            <div class="proto-block htt-conn-mqtt-block ${type==='mqtt'?'active':''}">
+                <div class="row"><label>Broker host</label><input type="text" class="htt-conn-mqtt-host" value="${(conn.host)||''}" placeholder="192.168.1.10"></div>
+                <div class="row"><label>Broker port</label><input type="number" class="htt-conn-mqtt-port" value="${(conn.port)||1883}"></div>
+                <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-conn-mqtt-tls" ${conn.tls?'checked':''}> Use TLS (mqtts, typically port 8883)</label></div>
+                <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-conn-mqtt-insecure" ${conn.insecure_tls?'checked':''}> Ignore invalid/self-signed broker certificates</label></div>
+                <div class="row"><label>Username</label><input type="text" class="htt-conn-mqtt-user" value="${(conn.username)||''}"></div>
+                <div class="row"><label>Password</label>${httPassField('htt-conn-mqtt-pass', conn.password||'')}</div>
+            </div>
+            <div class="proto-block htt-conn-webhook-block ${type==='webhook'?'active':''}">
+                <div class="row"><label>Headers (optional)</label><textarea class="htt-conn-webhook-headers" style="width:320px;height:60px;font-family:monospace;font-size:12px" placeholder="Content-Type: application/json&#10;X-Api-Key: xxxx">${(conn.headers)||''}</textarea></div>
+                <div class="row"><label>Username (optional)</label><input type="text" class="htt-conn-webhook-user" value="${(conn.username)||''}"></div>
+                <div class="row"><label>Password (optional)</label>${httPassField('htt-conn-webhook-pass', conn.password||'')}</div>
+                <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-conn-webhook-insecure" ${conn.insecure_tls?'checked':''}> Ignore invalid/self-signed HTTPS certificates</label></div>
+            </div>
+        `;
+        wrap.appendChild(box);
+    });
+}
+
+function httToggleConnType(sel) {
+    const box = sel.closest('.rule-box');
+    box.querySelector('.htt-conn-http-block').classList.toggle('active', sel.value === 'http');
+    box.querySelector('.htt-conn-mqtt-block').classList.toggle('active', sel.value === 'mqtt');
+    box.querySelector('.htt-conn-webhook-block').classList.toggle('active', sel.value === 'webhook');
+}
+
+function httAddConnection() {
+    httCollectConnections();
+    httConnections.push({ id: httUid(), name: 'New Connection', type: 'mqtt' });
+    httRenderConnections();
+}
+
+function httRemoveConnection(i) {
+    httCollectConnections();
+    httConnections.splice(i, 1);
+    httRenderConnections();
+}
+
+function httCollectConnections() {
+    const boxes = document.querySelectorAll('#htt-connections .rule-box');
+    const conns = [];
+    boxes.forEach(box => {
+        const i = parseInt(box.dataset.index);
+        const orig = httConnections[i] || {};
+        const type = box.querySelector('.htt-conn-type').value;
+        const conn = { id: orig.id || httUid(), name: box.querySelector('.htt-conn-name').value || 'Connection', type: type };
+        if (type === 'http') {
+            conn.base_url = box.querySelector('.htt-conn-http-url').value;
+            conn.username = box.querySelector('.htt-conn-http-user').value;
+            conn.password = box.querySelector('.htt-conn-http-pass').value;
+        } else if (type === 'mqtt') {
+            conn.host = box.querySelector('.htt-conn-mqtt-host').value;
+            conn.port = parseInt(box.querySelector('.htt-conn-mqtt-port').value) || 1883;
+            conn.tls = box.querySelector('.htt-conn-mqtt-tls').checked;
+            conn.insecure_tls = box.querySelector('.htt-conn-mqtt-insecure').checked;
+            conn.username = box.querySelector('.htt-conn-mqtt-user').value;
+            conn.password = box.querySelector('.htt-conn-mqtt-pass').value;
+        } else if (type === 'webhook') {
+            conn.headers = box.querySelector('.htt-conn-webhook-headers').value;
+            conn.username = box.querySelector('.htt-conn-webhook-user').value;
+            conn.password = box.querySelector('.htt-conn-webhook-pass').value;
+            conn.insecure_tls = box.querySelector('.htt-conn-webhook-insecure').checked;
+        }
+        conns.push(conn);
+    });
+    httConnections = conns;
+    return conns;
+}
+
+function httSaveConnections() {
+    const conns = httCollectConnections();
+    httPost('action=save_connections&connections=' + encodeURIComponent(JSON.stringify(conns)))
+        .then(r => r.json()).then(d => {
+            const msg = document.getElementById('htt-connections-save-msg');
+            msg.textContent = d.ok ? ' Saved and applied.' : ' Error saving: ' + (d.error || 'unknown error');
+            setTimeout(() => msg.textContent = '', 3000);
+            httRenderConnections();
+            httRenderRules(); // connection names/list shown in rule dropdowns may have changed
+        });
+}
+
+function httSaveGlobal() {
+    const enabled = document.getElementById('htt-plugin-enabled').checked;
+    const pollInterval = parseInt(document.getElementById('htt-poll-interval').value) || 60;
+    httPost('action=save_global&enabled=' + (enabled ? '1' : '') + '&poll_interval=' + pollInterval)
+        .then(r => r.json()).then(d => {
+            const msg = document.getElementById('htt-global-save-msg');
+            msg.textContent = d.ok ? ' Saved and applied.' : ' Error saving: ' + (d.error || 'unknown error');
+            setTimeout(() => msg.textContent = '', 3000);
+            const box = document.getElementById('htt-plugin-toggle');
+            box.classList.remove('enabled', 'disabled');
+            box.classList.add(enabled ? 'enabled' : 'disabled');
+        });
 }
 
 let httCollapsedOverride = {}; // ruleId -> bool, only set once the user explicitly toggles a rule
@@ -244,19 +385,25 @@ function httRenderRules() {
                 </select>
             </div>
             <div class="proto-block htt-http-block ${rule.protocol!=='mqtt'&&rule.protocol!=='webhook'?'active':''}">
+                <div class="row"><label>Connection</label><select class="htt-http-conn" onchange="httToggleRuleConn(this)">${httConnectionOptions('http', rule.http?.connection_id||'')}</select></div>
+                <div class="htt-http-connfields" style="display:${rule.http?.connection_id?'none':''}">
                 <div class="row"><label>Device base URL</label><input type="text" class="htt-http-url" value="${(rule.http?.base_url)||''}" placeholder="http://192.168.1.50"></div>
-                <div class="row"><label>Relay index (optional)</label><input type="text" class="htt-http-idx" value="${(rule.http?.device_index)||''}" placeholder="e.g. 2 for Power2"></div>
                 <div class="row"><label>Username</label><input type="text" class="htt-http-user" value="${(rule.http?.username)||''}"></div>
                 <div class="row"><label>Password</label>${httPassField('htt-http-pass', (rule.http?.password)||'')}</div>
+                </div>
+                <div class="row"><label>Relay index (optional)</label><input type="text" class="htt-http-idx" value="${(rule.http?.device_index)||''}" placeholder="e.g. 2 for Power2"></div>
                 <div class="row"><button type="button" onclick="httCheckState(${i})">Check Device State</button></div>
             </div>
             <div class="proto-block htt-mqtt-block ${rule.protocol==='mqtt'?'active':''}">
+                <div class="row"><label>Connection</label><select class="htt-mqtt-conn" onchange="httToggleRuleConn(this)">${httConnectionOptions('mqtt', rule.mqtt?.connection_id||'')}</select></div>
+                <div class="htt-mqtt-connfields" style="display:${rule.mqtt?.connection_id?'none':''}">
                 <div class="row"><label>Broker host</label><input type="text" class="htt-mqtt-host" value="${(rule.mqtt?.host)||''}" placeholder="192.168.1.10"></div>
                 <div class="row"><label>Broker port</label><input type="number" class="htt-mqtt-port" value="${(rule.mqtt?.port)||1883}"></div>
                 <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-mqtt-tls" ${rule.mqtt?.tls?'checked':''}> Use TLS (mqtts, typically port 8883)</label></div>
                 <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-mqtt-insecure" ${rule.mqtt?.insecure_tls?'checked':''}> Ignore invalid/self-signed broker certificates</label> <span class="htt-help" title="Skips TLS certificate verification for this broker. Only enable for trusted LAN brokers with self-signed certs - this disables protection against man-in-the-middle attacks.">&#9432;</span></div>
                 <div class="row"><label>Username</label><input type="text" class="htt-mqtt-user" value="${(rule.mqtt?.username)||''}"></div>
                 <div class="row"><label>Password</label>${httPassField('htt-mqtt-pass', (rule.mqtt?.password)||'')}</div>
+                </div>
                 <div class="row"><button type="button" onclick="httTestMqtt(${i})">Test MQTT Connection</button></div>
                 <div class="row"><label>Topic</label><input type="text" class="htt-mqtt-topic" value="${(rule.mqtt?.topic)||''}" placeholder="cmnd/tasmota_xx/POWER  or  zigbee2mqtt/plug/set"></div>
                 <div class="row"><label>Payload</label><input type="text" class="htt-mqtt-payload" value="${(rule.mqtt?.payload)||(direction==='off'?'OFF':'ON')}"></div>
@@ -270,6 +417,7 @@ function httRenderRules() {
                 <div class="row"><button type="button" onclick="httCheckState(${i})">Check Device State</button></div>
             </div>
             <div class="proto-block htt-webhook-block ${rule.protocol==='webhook'?'active':''}">
+                <div class="row"><label>Connection</label><select class="htt-webhook-conn" onchange="httToggleRuleConn(this)">${httConnectionOptions('webhook', rule.webhook?.connection_id||'')}</select></div>
                 <div class="row"><label>Method</label>
                     <select class="htt-webhook-method">
                         ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${(rule.webhook?.method||'GET')===m?'selected':''}>${m}</option>`).join('')}
@@ -279,10 +427,12 @@ function httRenderRules() {
                 <div class="row"><label>Body (optional)</label><input type="text" class="htt-webhook-body" value="${(rule.webhook?.body)||''}" placeholder="raw request body for POST/PUT/PATCH"></div>
                 <hr style="border:none;border-top:1px solid #666;margin:12px 0">
                 <div class="row" style="opacity:0.75">Shared settings below apply to the action above and the state check.</div>
+                <div class="htt-webhook-connfields" style="display:${rule.webhook?.connection_id?'none':''}">
                 <div class="row"><label>Headers (optional)</label><textarea class="htt-webhook-headers" style="width:320px;height:60px;font-family:monospace;font-size:12px" placeholder="Content-Type: application/json&#10;X-Api-Key: xxxx">${(rule.webhook?.headers)||''}</textarea></div>
                 <div class="row"><label>Username (optional)</label><input type="text" class="htt-webhook-user" value="${(rule.webhook?.username)||''}"></div>
                 <div class="row"><label>Password (optional)</label>${httPassField('htt-webhook-pass', (rule.webhook?.password)||'')}</div>
                 <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-webhook-insecure" ${rule.webhook?.insecure_tls?'checked':''}> Ignore invalid/self-signed HTTPS certificates</label> <span class="htt-help" title="Skips TLS certificate verification for this endpoint. Only enable for trusted LAN devices with self-signed certs - this disables protection against man-in-the-middle attacks.">&#9432;</span></div>
+                </div>
                 <hr style="border:none;border-top:1px solid #666;margin:12px 0">
                 <div class="row" style="opacity:0.75">Debug-only: used by "Check Device State" below, not by the action above.</div>
                 <div class="row"><label>State URL (optional)</label><input type="text" class="htt-webhook-state-url" value="${(rule.webhook?.state_url)||''}" placeholder="https://host/api/status"></div>
@@ -293,10 +443,21 @@ function httRenderRules() {
                 </div>
                 <div class="row"><button type="button" onclick="httCheckState(${i})">Check Device State</button></div>
             </div>
+            <hr style="border:none;border-top:1px solid #666;margin:12px 0">
+            <div class="row">
+                <button type="button" onclick="httSaveRule(${i})">Save &amp; Apply</button>
+                <span class="htt-rule-save-msg"></span>
+            </div>
             </div>
         `;
         wrap.appendChild(box);
     });
+}
+
+/** Hides a rule's manual connection-level fields (host/user/pass/etc.) once it's tied to a saved connection. */
+function httToggleRuleConn(sel) {
+    const wrap = sel.closest('.proto-block').querySelector('[class$="-connfields"]');
+    if (wrap) wrap.style.display = sel.value ? 'none' : '';
 }
 
 function httToggleProto(sel) {
@@ -333,12 +494,19 @@ function httToggleCollapse(i) {
     httRenderRules();
 }
 
+/** Persists the whole rule list/order as-is (used after structural changes below). */
+function httSaveRules() {
+    return httPost('action=save_rules&rules=' + encodeURIComponent(JSON.stringify(httRules)))
+        .then(r => r.json());
+}
+
 function httAddRule() {
     httCollectRules(); // otherwise re-rendering every box would discard unsaved edits in any other rule
     const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], trigger_type: 'temp', aggregate: 'max', direction: 'on', threshold: 40, delay_seconds: 0, force_resend: false, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
     httRenderRules();
+    httSaveRules();
 }
 
 function httDuplicateRule(i) {
@@ -349,12 +517,14 @@ function httDuplicateRule(i) {
     httRules.splice(i + 1, 0, clone);
     httCollapsedOverride[clone.id] = false; // keep the new copy open for editing
     httRenderRules();
+    httSaveRules();
 }
 
 function httRemoveRule(i) {
     httCollectRules();
     httRules.splice(i, 1);
     httRenderRules();
+    httSaveRules();
 }
 
 /** Rules run in this order (top to bottom) - matches poll-cycle execution order 1:1. */
@@ -364,6 +534,7 @@ function httMoveRule(i, delta) {
     if (j < 0 || j >= httRules.length) return;
     [httRules[i], httRules[j]] = [httRules[j], httRules[i]];
     httRenderRules();
+    httSaveRules();
 }
 
 function httCollectRules() {
@@ -388,12 +559,14 @@ function httCollectRules() {
             force_resend: box.querySelector('.htt-force-resend').checked,
             protocol: box.querySelector('.htt-protocol').value,
             http: {
+                connection_id: box.querySelector('.htt-http-conn').value,
                 base_url: box.querySelector('.htt-http-url').value,
                 device_index: box.querySelector('.htt-http-idx').value,
                 username: box.querySelector('.htt-http-user').value,
                 password: box.querySelector('.htt-http-pass').value,
             },
             mqtt: {
+                connection_id: box.querySelector('.htt-mqtt-conn').value,
                 host: box.querySelector('.htt-mqtt-host').value,
                 port: parseInt(box.querySelector('.htt-mqtt-port').value) || 1883,
                 tls: box.querySelector('.htt-mqtt-tls').checked,
@@ -409,6 +582,7 @@ function httCollectRules() {
                 state_off_value: box.querySelector('.htt-mqtt-state-off').value || 'OFF',
             },
             webhook: {
+                connection_id: box.querySelector('.htt-webhook-conn').value,
                 method: box.querySelector('.htt-webhook-method').value,
                 url: box.querySelector('.htt-webhook-url').value,
                 body: box.querySelector('.htt-webhook-body').value,
@@ -425,16 +599,18 @@ function httCollectRules() {
     return rules;
 }
 
-function httSaveConfig() {
-    const rules = httCollectRules();
-    const config = { enabled: document.getElementById('htt-plugin-enabled').checked, poll_interval: parseInt(document.getElementById('htt-poll-interval').value) || 60, rules: rules };
-    httPost('action=save_config&config=' + encodeURIComponent(JSON.stringify(config)))
+function httSaveRule(i) {
+    httCollectRules();
+    const rule = httRules[i];
+    const msgEl = document.querySelector(`.rule-box[data-index="${i}"] .htt-rule-save-msg`);
+    httPost('action=save_rule&rule=' + encodeURIComponent(JSON.stringify(rule)))
         .then(r => r.json()).then(d => {
-            document.getElementById('htt-save-msg').textContent = d.ok ? ' Saved and applied.' : ' Error saving: ' + (d.error || 'unknown error');
-            setTimeout(() => document.getElementById('htt-save-msg').textContent = '', 3000);
-            httRenderRules();
+            if (msgEl) {
+                msgEl.textContent = d.ok ? ' Saved and applied.' : ' Error saving: ' + (d.error || 'unknown error');
+                setTimeout(() => msgEl.textContent = '', 3000);
+            }
         }).catch(err => {
-            document.getElementById('htt-save-msg').textContent = ' Error saving: ' + err;
+            if (msgEl) msgEl.textContent = ' Error saving: ' + err;
         });
 }
 
@@ -466,17 +642,6 @@ function httCheckState(i) {
 
 function httServiceControl(cmd) {
     httPost('action=service_control&cmd=' + cmd).then(() => setTimeout(httLoadStatus, 1500));
-}
-
-function httTogglePluginEnabled(checkbox) {
-    const config = { enabled: checkbox.checked, poll_interval: parseInt(document.getElementById('htt-poll-interval').value) || 60, rules: httCollectRules() };
-    httPost('action=save_config&config=' + encodeURIComponent(JSON.stringify(config)))
-        .then(r => r.json()).then(d => {
-            const box = document.getElementById('htt-plugin-toggle');
-            box.classList.remove('enabled', 'disabled');
-            box.classList.add(checkbox.checked ? 'enabled' : 'disabled');
-            if (!d.ok) alert('Failed to save: ' + (d.error || 'unknown error'));
-        });
 }
 
 function httToggleYaml() {
@@ -515,6 +680,7 @@ function httApplyYaml() {
                 // Refresh the rule editor / global settings from the newly saved config.
                 fetch(HTT_ENDPOINT + '?action=get_config', { credentials: 'same-origin' }).then(r => r.json()).then(config => {
                     httRules = config.rules || [];
+                    httConnections = config.connections || [];
                     document.getElementById('htt-poll-interval').value = config.poll_interval ?? 60;
                     const pluginEnabled = document.getElementById('htt-plugin-enabled');
                     pluginEnabled.checked = config.enabled ?? true;
@@ -522,6 +688,7 @@ function httApplyYaml() {
                     box.classList.remove('enabled', 'disabled');
                     box.classList.add(pluginEnabled.checked ? 'enabled' : 'disabled');
                     httCollapsedOverride = {};
+                    httRenderConnections();
                     httRenderRules();
                     httLoadStatus();
                 });
@@ -571,6 +738,7 @@ function httClearLog() {
     httPost('action=clear_log').then(r => r.json()).then(() => httLoadLog());
 }
 
+httRenderConnections();
 httRenderRules();
 httLoadStatus();
 httLoadLog();

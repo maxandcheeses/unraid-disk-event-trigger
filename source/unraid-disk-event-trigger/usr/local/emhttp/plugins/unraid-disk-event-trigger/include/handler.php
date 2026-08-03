@@ -23,6 +23,49 @@ switch ($action) {
         if ($errors) respond(['ok' => false, 'error' => implode('; ', $errors)]);
         respond(htt_apply_config($config));
 
+    case 'save_global':
+        $config = htt_load_config();
+        $config['enabled'] = !empty($_POST['enabled']) && $_POST['enabled'] !== 'false';
+        $config['poll_interval'] = intval($_POST['poll_interval'] ?? 60);
+        $errors = htt_validate_config($config);
+        if ($errors) respond(['ok' => false, 'error' => implode('; ', $errors)]);
+        respond(htt_apply_config($config));
+
+    case 'save_connections':
+        $connections = json_decode($_POST['connections'] ?? '', true);
+        if (!is_array($connections)) respond(['ok' => false, 'error' => 'invalid connections']);
+        $config = htt_load_config();
+        $config['connections'] = $connections;
+        $errors = htt_validate_config($config);
+        if ($errors) respond(['ok' => false, 'error' => implode('; ', $errors)]);
+        respond(htt_apply_config($config));
+
+    case 'save_rule':
+        $rule = json_decode($_POST['rule'] ?? '', true);
+        if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
+        $config = htt_load_config();
+        $found = false;
+        foreach ($config['rules'] as &$r) {
+            if (!empty($rule['id']) && ($r['id'] ?? null) === $rule['id']) { $r = $rule; $found = true; break; }
+        }
+        unset($r);
+        if (!$found) $config['rules'][] = $rule;
+        $errors = htt_validate_config($config);
+        if ($errors) respond(['ok' => false, 'error' => implode('; ', $errors)]);
+        respond(htt_apply_config($config));
+
+    case 'save_rules':
+        // Persists the whole rule list/order as-is - used for structural
+        // changes (add/remove/move/duplicate) rather than editing one rule's
+        // fields, which go through save_rule instead.
+        $rules = json_decode($_POST['rules'] ?? '', true);
+        if (!is_array($rules)) respond(['ok' => false, 'error' => 'invalid rules']);
+        $config = htt_load_config();
+        $config['rules'] = $rules;
+        $errors = htt_validate_config($config);
+        if ($errors) respond(['ok' => false, 'error' => implode('; ', $errors)]);
+        respond(htt_apply_config($config));
+
     case 'save_config_yaml':
         $yaml = $_POST['yaml'] ?? '';
         try {
@@ -68,7 +111,7 @@ switch ($action) {
     case 'test_command':
         $rule = json_decode($_POST['rule'] ?? '', true);
         if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
-        $ok = htt_send_command($rule);
+        $ok = htt_send_command(htt_load_config(), $rule);
         if ($ok && !empty($rule['id'])) {
             // Keep the poll cycle's "already fired" tracking in sync with a
             // manual test send, so it doesn't immediately re-fire next cycle.
@@ -81,7 +124,7 @@ switch ($action) {
     case 'test_mqtt':
         $rule = json_decode($_POST['rule'] ?? '', true);
         if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
-        $m = $rule['mqtt'] ?? [];
+        $m = htt_resolve_protocol(htt_load_config(), $rule, 'mqtt');
         $result = htt_mqtt_test_connection($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '', 5, !empty($m['tls']), !empty($m['insecure_tls']));
         htt_log("MQTT connection test for rule '{$rule['name']}': " . ($result['ok'] ? 'OK' : $result['error']));
         respond($result);
@@ -89,9 +132,10 @@ switch ($action) {
     case 'get_device_state':
         $rule = json_decode($_POST['rule'] ?? '', true);
         if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
+        $config = htt_load_config();
         $protocol = $rule['protocol'] ?? 'http';
-        $result = $protocol === 'mqtt' ? htt_query_mqtt_state($rule)
-            : ($protocol === 'webhook' ? htt_query_webhook_state($rule) : htt_query_http_state($rule));
+        $result = $protocol === 'mqtt' ? htt_query_mqtt_state($config, $rule)
+            : ($protocol === 'webhook' ? htt_query_webhook_state($config, $rule) : htt_query_http_state($config, $rule));
         if ($result['ok']) {
             htt_log("Device state check for rule '{$rule['name']}': raw='{$result['raw']}' -> " . ($result['state'] ?? 'unknown'));
             // Self-heal: sync this rule's "already fired" tracking to whether
