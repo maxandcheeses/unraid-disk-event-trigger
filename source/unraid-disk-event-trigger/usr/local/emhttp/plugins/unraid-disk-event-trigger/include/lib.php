@@ -62,13 +62,14 @@ function htt_validate_config($config) {
     foreach (($config['rules'] ?? []) as $idx => $rule) {
         $label = "rule #" . ($idx + 1) . (is_array($rule) && !empty($rule['name']) ? " ('{$rule['name']}')" : '');
         if (!is_array($rule)) { $errors[] = "$label must be a mapping"; continue; }
-        if (isset($rule['trigger_type']) && !in_array($rule['trigger_type'], ['temp', 'usage'], true)) {
-            $errors[] = "$label: trigger_type must be 'temp' or 'usage'";
+        if (isset($rule['trigger_type']) && !in_array($rule['trigger_type'], ['temp', 'usage', 'parity_check', 'rebuild'], true)) {
+            $errors[] = "$label: trigger_type must be 'temp', 'usage', 'parity_check', or 'rebuild'";
         }
-        if (isset($rule['on_temp']) && !is_numeric($rule['on_temp'])) $errors[] = "$label: on_temp must be a number";
-        if (isset($rule['off_temp']) && !is_numeric($rule['off_temp'])) $errors[] = "$label: off_temp must be a number";
-        if (isset($rule['on_delay_seconds']) && (!is_numeric($rule['on_delay_seconds']) || $rule['on_delay_seconds'] < 0)) $errors[] = "$label: on_delay_seconds must be a non-negative number";
-        if (isset($rule['off_delay_seconds']) && (!is_numeric($rule['off_delay_seconds']) || $rule['off_delay_seconds'] < 0)) $errors[] = "$label: off_delay_seconds must be a non-negative number";
+        if (isset($rule['direction']) && !in_array($rule['direction'], ['on', 'off'], true)) {
+            $errors[] = "$label: direction must be 'on' or 'off'";
+        }
+        if (isset($rule['threshold']) && !is_numeric($rule['threshold'])) $errors[] = "$label: threshold must be a number";
+        if (isset($rule['delay_seconds']) && (!is_numeric($rule['delay_seconds']) || $rule['delay_seconds'] < 0)) $errors[] = "$label: delay_seconds must be a non-negative number";
         if (isset($rule['protocol']) && !in_array($rule['protocol'], ['http', 'mqtt', 'webhook'], true)) {
             $errors[] = "$label: protocol must be 'http', 'mqtt', or 'webhook'";
         }
@@ -85,15 +86,11 @@ function htt_validate_config($config) {
                 $errors[] = "$label: webhook must be a mapping";
             } else {
                 $w = $rule['webhook'];
-                foreach (['on_method', 'off_method'] as $mk) {
-                    if (isset($w[$mk]) && !in_array(strtoupper($w[$mk]), ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], true)) {
-                        $errors[] = "$label: webhook.$mk must be one of GET, POST, PUT, PATCH, DELETE";
-                    }
+                if (isset($w['method']) && !in_array(strtoupper($w['method']), ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+                    $errors[] = "$label: webhook.method must be one of GET, POST, PUT, PATCH, DELETE";
                 }
-                foreach (['on_url', 'off_url'] as $uk) {
-                    if (!empty($w[$uk]) && !preg_match('#^https?://#i', $w[$uk])) {
-                        $errors[] = "$label: webhook.$uk must start with http:// or https://";
-                    }
+                if (!empty($w['url']) && !preg_match('#^https?://#i', $w['url'])) {
+                    $errors[] = "$label: webhook.url must start with http:// or https://";
                 }
             }
         }
@@ -637,8 +634,8 @@ function htt_query_mqtt_state($rule) {
         }
     }
 
-    $onPayload = trim($m['on_payload'] ?? 'ON');
-    $offPayload = trim($m['off_payload'] ?? 'OFF');
+    $onPayload = trim($m['state_on_value'] ?? 'ON');
+    $offPayload = trim($m['state_off_value'] ?? 'OFF');
     $state = null;
     if (strcasecmp((string)$value, $onPayload) === 0 || strcasecmp((string)$value, 'ON') === 0 || strcasecmp((string)$value, 'true') === 0) {
         $state = 'on';
@@ -667,8 +664,8 @@ function htt_send_mqtt($rule, $on) {
     $host = $m['host'] ?? '';
     if ($host === '') return false;
     $port = intval($m['port'] ?? 1883);
-    $topic = $on ? ($m['on_topic'] ?? $m['topic'] ?? '') : ($m['off_topic'] ?? $m['topic'] ?? '');
-    $payload = $on ? ($m['on_payload'] ?? 'ON') : ($m['off_payload'] ?? 'OFF');
+    $topic = $m['topic'] ?? '';
+    $payload = $m['payload'] ?? ($on ? 'ON' : 'OFF');
     if ($topic === '') return false;
     $clientId = 'httrigger-' . substr(md5($rule['id'] . microtime()), 0, 8);
     $ok = htt_mqtt_publish($host, $port, $clientId, $m['username'] ?? '', $m['password'] ?? '', $topic, $payload, 5, !empty($m['tls']), !empty($m['insecure_tls']));
@@ -738,10 +735,10 @@ function htt_webhook_request($url, $method, $body, $headersRaw, $username, $pass
 
 function htt_send_webhook($rule, $on) {
     $w = $rule['webhook'] ?? [];
-    $url = trim($on ? ($w['on_url'] ?? '') : ($w['off_url'] ?? ''));
+    $url = trim($w['url'] ?? '');
     if ($url === '') return false;
-    $method = $on ? ($w['on_method'] ?? 'GET') : ($w['off_method'] ?? 'GET');
-    $body = $on ? ($w['on_body'] ?? '') : ($w['off_body'] ?? '');
+    $method = $w['method'] ?? 'GET';
+    $body = $w['body'] ?? '';
 
     $r = htt_webhook_request($url, $method, $body, $w['headers'] ?? '', $w['username'] ?? '', $w['password'] ?? '', $w['insecure_tls'] ?? false);
     if (!$r['ok']) {
@@ -776,7 +773,14 @@ function htt_query_webhook_state($rule) {
     return ['ok' => true, 'state' => null, 'raw' => "HTTP {$r['status']}\n{$r['body']}", 'error' => ''];
 }
 
-function htt_send_command($rule, $on) {
+/**
+ * Fire a rule's configured action in its own direction. Each rule now
+ * represents exactly one direction (on or off) rather than a paired
+ * on/off action - a caller (poll cycle, manual Test button) never needs
+ * to separately decide which way to fire.
+ */
+function htt_send_command($rule) {
+    $on = (($rule['direction'] ?? 'on') !== 'off');
     $protocol = $rule['protocol'] ?? 'http';
     if ($protocol === 'mqtt') return htt_send_mqtt($rule, $on);
     if ($protocol === 'webhook') return htt_send_webhook($rule, $on);
@@ -785,9 +789,9 @@ function htt_send_command($rule, $on) {
 
 /**
  * Detect an in-progress parity check or array rebuild/data-rebuild from
- * Unraid's own array state file. Disks run considerably hotter during
- * these operations, so rules can opt in to forcing the relay ON for the
- * duration regardless of the temperature threshold.
+ * Unraid's own array state file. Rules can use trigger_type
+ * 'parity_check'/'rebuild' to fire their own action directly off this,
+ * independent of any temperature/usage rules.
  */
 function htt_array_status() {
     $ini = '/var/local/emhttp/var.ini';
@@ -812,8 +816,11 @@ function htt_array_status() {
 }
 
 /**
- * Evaluate all enabled rules against current disk temps and fire Tasmota
- * commands on state transitions (hysteresis between on_temp/off_temp).
+ * Evaluate all enabled rules and fire each one's single action once its
+ * single condition is met. Each rule is single-direction (on or off) with
+ * its own threshold/delay - hysteresis is achieved by configuring a pair
+ * of rules (e.g. an "on" rule at 40C and an "off" rule at 35C) rather than
+ * one rule internally tracking both thresholds.
  */
 function htt_run_cycle() {
     $config = htt_load_config();
@@ -826,96 +833,96 @@ function htt_run_cycle() {
     foreach ($config['rules'] as $rule) {
         if (empty($rule['enabled'])) continue;
         $id = $rule['id'];
-
         $triggerType = $rule['trigger_type'] ?? 'temp';
-        $metricFn = $triggerType === 'usage' ? 'htt_disk_usage_pct' : 'htt_disk_temp';
+        $direction = ($rule['direction'] ?? 'on') === 'off' ? 'off' : 'on';
+        $prevFired = !empty($state[$id]['fired']);
 
-        $selected = $rule['disks'] ?? ['all'];
-        $values = [];
-        if (in_array('all', $selected)) {
-            foreach ($disks as $d) $values[] = $metricFn($d);
+        $conditionMet = null;
+        $reason = '';
+        $unavailable = false;
+
+        if ($triggerType === 'parity_check' || $triggerType === 'rebuild') {
+            $what = $triggerType === 'parity_check' ? 'parity check' : 'array/data rebuild';
+            $active = $array['active'] && ($triggerType === 'parity_check' ? $array['is_parity_check'] : $array['is_rebuild']);
+            $conditionMet = $direction === 'on' ? $active : !$active;
+            $reason = "$what " . ($active ? 'active' : 'inactive');
         } else {
-            foreach ($selected as $name) {
-                if (isset($disks[$name])) $values[] = $metricFn($disks[$name]);
+            $metricFn = $triggerType === 'usage' ? 'htt_disk_usage_pct' : 'htt_disk_temp';
+            $selected = $rule['disks'] ?? ['all'];
+            $values = [];
+            if (in_array('all', $selected)) {
+                foreach ($disks as $d) $values[] = $metricFn($d);
+            } else {
+                foreach ($selected as $name) {
+                    if (isset($disks[$name])) $values[] = $metricFn($disks[$name]);
+                }
+            }
+            $agg = htt_aggregate($values, $rule['aggregate'] ?? 'max');
+            $state[$id]['last_value'] = $agg;
+            if ($agg === null) {
+                $unavailable = true;
+            } else {
+                $threshold = floatval($rule['threshold'] ?? 0);
+                $conditionMet = $direction === 'on' ? $agg >= $threshold : $agg <= $threshold;
+                $reason = ($triggerType === 'usage' ? "usage={$agg}%" : "temp={$agg}C");
             }
         }
 
-        $agg = htt_aggregate($values, $rule['aggregate'] ?? 'max');
-        $prev = $state[$id]['relay'] ?? 'unknown';
+        $state[$id]['last_check'] = time();
 
-        $forceOn = $array['active'] && (
-            (!empty($rule['trigger_on_parity_check']) && $array['is_parity_check']) ||
-            (!empty($rule['trigger_on_rebuild']) && $array['is_rebuild'])
-        );
-
-        if ($agg === null && !$forceOn) {
+        if ($unavailable) {
             $what = $triggerType === 'usage' ? 'disk usage' : 'disk temps';
             htt_log("Rule '{$rule['name']}': no readable $what (all spun down, or usage data unavailable?), skipping");
             continue;
         }
 
-        $onTemp = floatval($rule['on_temp']);
-        $offTemp = floatval($rule['off_temp']);
-        // Desired relay state per current thresholds; within the hysteresis
-        // band (between off_temp and on_temp) carry forward the last decision.
-        $desiredRelay = $prev;
-        $reason = $triggerType === 'usage' ? "usage={$agg}%" : "temp={$agg}C";
+        $delaySec = floatval($rule['delay_seconds'] ?? 0);
 
-        if ($forceOn) {
-            $desiredRelay = 'on';
-            $reason = "array op '{$array['action']}' active";
-        } elseif ($agg !== null) {
-            if ($agg >= $onTemp) {
-                $desiredRelay = 'on';
-            } elseif ($agg <= $offTemp) {
-                $desiredRelay = 'off';
-            }
-        }
-
-        $state[$id]['last_temp'] = $agg;
-        $state[$id]['last_check'] = time();
-        $state[$id]['forced_by_array_op'] = $forceOn;
-
-        $isTransition = in_array($desiredRelay, ['on', 'off'], true) && $desiredRelay !== $prev;
-        $delaySec = $forceOn ? 0 : floatval(($desiredRelay === 'on' ? $rule['on_delay_seconds'] : $rule['off_delay_seconds']) ?? 0);
-
-        // A pending transition must keep wanting the same new state across
-        // cycles for the full delay before it's actually sent - if the
-        // condition reverts (or flips to a different desired state) in the
-        // meantime, the delay resets/clears rather than firing stale.
-        if (!$isTransition || $delaySec <= 0) {
-            unset($state[$id]['pending_relay']);
+        if (!$conditionMet) {
             unset($state[$id]['pending_since']);
-        } else {
-            if (($state[$id]['pending_relay'] ?? null) !== $desiredRelay) {
-                $state[$id]['pending_relay'] = $desiredRelay;
-                $state[$id]['pending_since'] = time();
-                htt_log("Rule '{$rule['name']}': $reason, {$prev} -> {$desiredRelay} pending (delay {$delaySec}s)");
+            if ($prevFired) {
+                $state[$id]['fired'] = false;
+                htt_log("Rule '{$rule['name']}': $reason, condition cleared, reset");
             }
+            continue;
         }
 
-        $delayElapsed = $delaySec <= 0 || (time() - ($state[$id]['pending_since'] ?? time())) >= $delaySec;
-
-        // Normally only send on an actual transition (once any configured
-        // delay has elapsed with the condition still holding). With
-        // force_resend, keep re-asserting the desired state every cycle even
-        // if unchanged - guards against the tracked relay state drifting
-        // from the real device (e.g. someone toggled it manually, or a
-        // previous send was silently dropped by the broker/device).
-        $shouldSend = in_array($desiredRelay, ['on', 'off'], true)
-            && (($desiredRelay !== $prev && $delayElapsed) || (!$isTransition && !empty($rule['force_resend'])));
-
-        if ($shouldSend) {
-            $ok = htt_send_command($rule, $desiredRelay === 'on');
-            if ($ok) {
-                $state[$id]['relay'] = $desiredRelay;
-                unset($state[$id]['pending_relay']);
-                unset($state[$id]['pending_since']);
-                $verb = $desiredRelay !== $prev ? "transitioned {$prev} -> {$desiredRelay}" : "re-asserted {$desiredRelay} (force resend)";
-                htt_log("Rule '{$rule['name']}': $reason, $verb");
-            } else {
-                htt_log("Rule '{$rule['name']}': $reason, send to {$desiredRelay} FAILED, will retry next cycle");
+        if ($prevFired) {
+            // Already fired and condition still holds - nothing to do unless
+            // force_resend wants us to keep re-asserting every cycle (guards
+            // against drift if the device was toggled manually, or a previous
+            // send was silently dropped).
+            if (!empty($rule['force_resend'])) {
+                $ok = htt_send_command($rule);
+                if ($ok) {
+                    htt_log("Rule '{$rule['name']}': $reason, re-asserted {$direction} (force resend)");
+                } else {
+                    htt_log("Rule '{$rule['name']}': $reason, force-resend of {$direction} FAILED, will retry next cycle");
+                }
             }
+            continue;
+        }
+
+        // Not yet fired - condition just became true (or is still pending
+        // its configured delay). A pending fire must keep holding true
+        // across cycles for the full delay; if the condition reverts before
+        // then, it's cleared above rather than firing stale.
+        if (!isset($state[$id]['pending_since'])) {
+            $state[$id]['pending_since'] = time();
+            if ($delaySec > 0) {
+                htt_log("Rule '{$rule['name']}': $reason, pending {$direction} (delay {$delaySec}s)");
+            }
+        }
+        $delayElapsed = $delaySec <= 0 || (time() - $state[$id]['pending_since']) >= $delaySec;
+        if (!$delayElapsed) continue;
+
+        $ok = htt_send_command($rule);
+        if ($ok) {
+            $state[$id]['fired'] = true;
+            unset($state[$id]['pending_since']);
+            htt_log("Rule '{$rule['name']}': $reason, fired {$direction}");
+        } else {
+            htt_log("Rule '{$rule['name']}': $reason, send FAILED, will retry next cycle");
         }
     }
 

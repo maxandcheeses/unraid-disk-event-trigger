@@ -2,43 +2,41 @@
 
 Unraid plugin: monitors HDD/SSD temperatures (via Unraid's own SMART cache,
 falling back to `smartctl` for disks that are spun up but not yet cached —
-spun-down disks are never woken just to poll temp) and/or used disk space
-percentage (from Unraid's own cached filesystem stats, safe to read even for
-spun-down disks), and fires Tasmota switches or webhooks when configurable
-thresholds are crossed, with hysteresis (separate on/off thresholds) so a
-switch doesn't chatter near the threshold.
+spun-down disks are never woken just to poll temp), used disk space
+percentage, and parity-check/rebuild activity, firing Tasmota switches or
+webhooks when a condition is met.
 
-- Multiple independent rules, each covering any subset of array/cache disks
-  (or "all"), aggregated by max/avg/min.
-- Per-rule trigger metric: disk **temperature** or disk **used space %** —
-  e.g. spin up a backup drive when the array crosses a capacity threshold,
-  independent of any temperature-based rules.
-- Three trigger protocols per rule:
+- Each rule is single-direction: it fires exactly one action (turn something
+  ON, or turn it OFF) once its one condition is met. Hysteresis (e.g. "turn a
+  fan on at 40°C, off at 35°C") is achieved by creating a *pair* of rules —
+  an ON rule and an OFF rule — rather than one rule juggling both directions
+  internally. The **Duplicate** button on a rule makes it quick to create the
+  matching opposite-direction rule.
+- Four trigger types per rule:
+  - **Disk temperature** / **Disk usage %** — a threshold over any subset of
+    array/cache disks (or "all"), aggregated by max/avg/min.
+  - **Parity check** / **Array/data rebuild** — fires directly off Unraid's
+    own `mdResync`/`mdResyncAction` state (e.g. an ON rule that fires when a
+    parity check starts, paired with an OFF rule that fires when it ends) —
+    independent of any temperature/usage rules.
+- Three action protocols per rule:
   - **HTTP**: Tasmota's native `http://<ip>/cm?cmnd=Power On|Off` API.
   - **MQTT**: a minimal built-in MQTT v3.1.1 QoS0 publisher (no external
     `mosquitto_pub` dependency) — works with Tasmota's MQTT mode or
-    zigbee2mqtt (e.g. topic `zigbee2mqtt/<device>/set`, payload
-    `{"state":"ON"}`). Optional TLS (mqtts) with an "ignore invalid/
-    self-signed broker certificates" toggle for LAN brokers without a real
-    CA cert.
-  - **Generic HTTP/HTTPS webhook**: independent method/URL/body/headers for
-    ON and OFF, for anything Tasmota's fixed API doesn't cover (Home
-    Assistant, Node-RED, other automation hubs). Supports optional basic
-    auth and an "ignore invalid/self-signed HTTPS certificates" toggle for
-    LAN endpoints with self-signed certs. An optional separate state
+    zigbee2mqtt. Optional TLS (mqtts) with an "ignore invalid/self-signed
+    broker certificates" toggle for LAN brokers without a real CA cert.
+  - **Generic HTTP/HTTPS webhook**: method/URL/body/headers, for anything
+    Tasmota's fixed API doesn't cover (Home Assistant, Node-RED, other
+    automation hubs). Supports optional basic auth and an "ignore invalid/
+    self-signed HTTPS certificates" toggle. An optional separate state
     URL/method backs its own "Check Device State" button, which shows the
-    raw HTTP status/body verbatim for debugging (unlike HTTP/MQTT, it
-    can't infer on/off from an arbitrary endpoint's response).
+    raw HTTP status/body verbatim for debugging (unlike HTTP/MQTT, it can't
+    infer on/off from an arbitrary endpoint's response).
 - Background poller (`/etc/rc.d/rc.unraid-disk-event-trigger`) runs continuously
   at a configurable interval (default 60s), independent of Unraid's cron
   granularity.
-- Per-rule "also force ON during parity check / array rebuild" options —
-  disks run much hotter during these operations, so a rule can opt to
-  bypass the temperature threshold and switch on immediately for the
-  duration (detected from Unraid's own `mdResync`/`mdResyncAction` state),
-  then fall back to normal temp-based hysteresis once it finishes.
 - Settings page under **Settings > Utilities > Disk Event Trigger**: live
-  disk temps, rule editor, per-rule "Test ON/OFF" buttons, service
+  disk temps/usage, rule editor with Duplicate/Test buttons, service
   start/stop/restart, and a log viewer.
 
 ## Layout
@@ -78,13 +76,15 @@ build.sh                        # packages source/ into unraid-disk-event-trigge
   "rules": [
     {
       "id": "abc123",
-      "name": "Array HDDs",
+      "name": "Array HDDs hot -> fan ON",
       "enabled": true,
       "disks": ["all"],
       "trigger_type": "temp",
       "aggregate": "max",
-      "on_temp": 40,
-      "off_temp": 35,
+      "direction": "on",
+      "threshold": 40,
+      "delay_seconds": 0,
+      "force_resend": false,
       "protocol": "mqtt",
       "mqtt": {
         "host": "192.168.1.10",
@@ -93,22 +93,43 @@ build.sh                        # packages source/ into unraid-disk-event-trigge
         "insecure_tls": false,
         "username": "",
         "password": "",
-        "on_topic": "zigbee2mqtt/disk-fan/set",
-        "on_payload": "{\"state\":\"ON\"}",
-        "off_topic": "zigbee2mqtt/disk-fan/set",
-        "off_payload": "{\"state\":\"OFF\"}"
+        "topic": "zigbee2mqtt/disk-fan/set",
+        "payload": "{\"state\":\"ON\"}"
+      }
+    },
+    {
+      "id": "def456",
+      "name": "Array HDDs cool -> fan OFF",
+      "enabled": true,
+      "disks": ["all"],
+      "trigger_type": "temp",
+      "aggregate": "max",
+      "direction": "off",
+      "threshold": 35,
+      "delay_seconds": 0,
+      "protocol": "mqtt",
+      "mqtt": {
+        "host": "192.168.1.10",
+        "port": 1883,
+        "topic": "zigbee2mqtt/disk-fan/set",
+        "payload": "{\"state\":\"OFF\"}"
       }
     }
   ]
 }
 ```
 
-`trigger_type` is `"temp"` (default) or `"usage"` (used disk space
-percentage). `on_temp`/`off_temp` are reused as the generic threshold values
-for whichever metric is selected (kept as-named for config backward
-compatibility) — e.g. with `trigger_type: "usage"`, `on_temp: 85` means
-"turn ON once usage reaches 85%".
+`trigger_type` is `"temp"`, `"usage"` (used disk space percentage),
+`"parity_check"`, or `"rebuild"`. `direction` is `"on"` or `"off"` - the
+single action this rule fires. For `temp`/`usage` rules, `threshold` is
+compared against the aggregated value (`>=` for an `"on"` rule, `<=` for an
+`"off"` rule); `threshold` is unused for `parity_check`/`rebuild` rules,
+which instead fire when the array operation starts (`"on"`) or ends
+(`"off"`). `delay_seconds` requires the condition to hold continuously
+before firing (0 = immediately).
 
-Relay on/off state per rule (for hysteresis) is cached at
+Per-rule fired/idle state (so a rule doesn't refire every poll cycle once
+its condition has fired) is cached at
 `/var/local/emhttp/unraid-disk-event-trigger.state.json` (cleared on reboot —
-the first poll after boot re-evaluates and re-sends the command).
+the first poll after boot re-evaluates and re-sends the action if the
+condition still holds).

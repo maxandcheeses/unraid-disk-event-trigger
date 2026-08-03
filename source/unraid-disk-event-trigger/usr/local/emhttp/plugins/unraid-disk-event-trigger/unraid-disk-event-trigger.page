@@ -106,14 +106,24 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 <script>
 const HTT_DISKS = <?= json_encode(array_values($disks)) ?>;
 let httRules = <?= json_encode($config['rules']) ?>;
-let httLastState = {}; // ruleId -> {relay, last_temp, ...}, cached across re-renders so folding doesn't blank the badge
+let httLastState = {}; // ruleId -> {fired, last_value, ...}, cached across re-renders so folding doesn't blank the badge
 const HTT_CSRF = '<?= htmlspecialchars($var['csrf_token'] ?? '', ENT_QUOTES) ?>';
 
-function httBadgeHtml(ruleId) {
-    const s = httLastState[ruleId];
-    const cls = (s && s.relay) ? s.relay : '';
-    const text = (s && s.relay) ? `State: ${s.relay.toUpperCase()}` : 'State: unknown';
-    return `<span class="htt-relay-badge ${cls}" data-rule-id="${ruleId||''}">${text}</span>`;
+function httBadgeHtml(rule) {
+    const s = httLastState[rule.id];
+    const dir = rule.direction === 'off' ? 'off' : 'on';
+    const fired = !!(s && s.fired);
+    const cls = fired ? dir : '';
+    const text = fired ? `Fired: ${dir.toUpperCase()}` : 'Idle';
+    return `<span class="htt-relay-badge ${cls}" data-rule-id="${rule.id||''}" data-direction="${dir}">${text}</span>`;
+}
+
+/** Direction dropdown option labels, which depend on the trigger type. */
+function httDirectionLabels(triggerType) {
+    if (triggerType === 'parity_check' || triggerType === 'rebuild') {
+        return { on: 'Fire when it starts', off: 'Fire when it ends' };
+    }
+    return { on: 'Turn ON when value rises to ≥ threshold', off: 'Turn OFF when value falls to ≤ threshold' };
 }
 const HTT_ENDPOINT = '/plugins/unraid-disk-event-trigger/include/handler.php';
 
@@ -159,6 +169,12 @@ function httRenderRules() {
         const key = rule.id || ('idx' + i);
         const collapsed = key in httCollapsedOverride ? httCollapsedOverride[key] : (httRules.length > 1);
 
+        const triggerType = rule.trigger_type || 'temp';
+        const isMetric = triggerType === 'temp' || triggerType === 'usage';
+        const unit = triggerType === 'usage' ? '%' : '°C';
+        const dirLabels = httDirectionLabels(triggerType);
+        const direction = rule.direction === 'off' ? 'off' : 'on';
+
         const box = document.createElement('div');
         box.className = 'rule-box' + (collapsed ? ' collapsed' : '');
         box.dataset.index = i;
@@ -167,49 +183,51 @@ function httRenderRules() {
                 <span class="htt-rule-toggle" onclick="httToggleCollapse(${i})">${collapsed ? '&#9656;' : '&#9662;'}</span>
                 <label class="htt-enabled-label"><input type="checkbox" ${rule.enabled ? 'checked' : ''} class="htt-enabled"> Enabled</label>
                 <input type="text" class="htt-name" value="${(rule.name||'').replace(/"/g,'&quot;')}" placeholder="Rule name" style="width:200px">
-                ${httBadgeHtml(rule.id)}
+                ${httBadgeHtml(rule)}
                 <button type="button" onclick="httRemoveRule(${i})" style="float:right">Remove</button>
-                <button type="button" onclick="httTestRule(${i}, true)" style="float:right;margin-right:6px">Test ON</button>
-                <button type="button" onclick="httTestRule(${i}, false)" style="float:right;margin-right:6px">Test OFF</button>
+                <button type="button" onclick="httDuplicateRule(${i})" style="float:right;margin-right:6px">Duplicate</button>
+                <button type="button" onclick="httTestRule(${i})" style="float:right;margin-right:6px" title="Fires this rule's configured action once, regardless of current temp/usage/array state">Test</button>
             </h4>
             <div class="rule-body">
             <div class="row">
+                <label>Trigger on</label>
+                <select class="htt-trigger-type" onchange="httToggleTriggerType(this)">
+                    <option value="temp" ${triggerType==='temp'?'selected':''}>Disk temperature</option>
+                    <option value="usage" ${triggerType==='usage'?'selected':''}>Disk usage %</option>
+                    <option value="parity_check" ${triggerType==='parity_check'?'selected':''}>Parity check</option>
+                    <option value="rebuild" ${triggerType==='rebuild'?'selected':''}>Array/data rebuild</option>
+                </select>
+            </div>
+            <div class="row htt-disks-row" style="display:${isMetric?'':'none'}">
                 <label>Disks</label>
                 <div class="disk-list">${httDiskCheckboxes(rule.disks)}</div>
             </div>
-            <div class="row">
-                <label>Trigger on</label>
-                <select class="htt-trigger-type" onchange="httToggleTriggerType(this)">
-                    <option value="temp" ${rule.trigger_type!=='usage'?'selected':''}>Disk temperature</option>
-                    <option value="usage" ${rule.trigger_type==='usage'?'selected':''}>Disk usage %</option>
-                </select>
-            </div>
-            <div class="row">
+            <div class="row htt-aggregate-row" style="display:${isMetric?'':'none'}">
                 <label>Aggregate</label>
                 <select class="htt-aggregate">
-                    <option value="max" ${rule.aggregate==='max'?'selected':''}>Max (${rule.trigger_type==='usage'?'fullest':'hottest'} disk)</option>
+                    <option value="max" ${rule.aggregate==='max'?'selected':''}>Max (${triggerType==='usage'?'fullest':'hottest'} disk)</option>
                     <option value="avg" ${rule.aggregate==='avg'?'selected':''}>Average</option>
-                    <option value="min" ${rule.aggregate==='min'?'selected':''}>Min (${rule.trigger_type==='usage'?'emptiest':'coolest'} disk)</option>
+                    <option value="min" ${rule.aggregate==='min'?'selected':''}>Min (${triggerType==='usage'?'emptiest':'coolest'} disk)</option>
                 </select>
             </div>
             <div class="row">
-                <label>Turn ON at &ge;</label>
-                <input type="number" class="htt-on-temp" value="${rule.on_temp ?? 40}"> <span class="htt-on-unit">${rule.trigger_type==='usage'?'%':'°C'}</span>
-                &nbsp;&nbsp;delay <input type="number" class="htt-on-delay" min="0" style="width:70px" value="${rule.on_delay_seconds ?? 0}"> sec <span class="htt-help" title="Only turn ON once the value has stayed at or above this threshold continuously for this many seconds. If it drops back below before the delay elapses, the ON command is never sent. 0 = send immediately.">&#9432;</span>
+                <label>Direction</label>
+                <select class="htt-direction">
+                    <option value="on" ${direction==='off'?'':'selected'}>${dirLabels.on}</option>
+                    <option value="off" ${direction==='off'?'selected':''}>${dirLabels.off}</option>
+                </select>
+            </div>
+            <div class="row htt-threshold-row" style="display:${isMetric?'':'none'}">
+                <label>Threshold</label>
+                <input type="number" class="htt-threshold" value="${rule.threshold ?? 40}"> <span class="htt-threshold-unit">${unit}</span>
             </div>
             <div class="row">
-                <label>Turn OFF at &le;</label>
-                <input type="number" class="htt-off-temp" value="${rule.off_temp ?? 35}"> <span class="htt-off-unit">${rule.trigger_type==='usage'?'%':'°C'}</span>
-                &nbsp;&nbsp;delay <input type="number" class="htt-off-delay" min="0" style="width:70px" value="${rule.off_delay_seconds ?? 0}"> sec <span class="htt-help" title="Only turn OFF once the value has stayed at or below this threshold continuously for this many seconds. If it rises back above before the delay elapses, the OFF command is never sent. 0 = send immediately.">&#9432;</span>
-            </div>
-            <div class="row">
-                <label>Also force ON during</label>
-                <label style="min-width:auto;margin-right:14px"><input type="checkbox" class="htt-force-parity" ${rule.trigger_on_parity_check?'checked':''}> parity check</label>
-                <label style="min-width:auto"><input type="checkbox" class="htt-force-rebuild" ${rule.trigger_on_rebuild?'checked':''}> array/data rebuild</label>
+                <label>Delay</label>
+                <input type="number" class="htt-delay" min="0" style="width:70px" value="${rule.delay_seconds ?? 0}"> sec <span class="htt-help" title="Only fire once the condition has held continuously for this many seconds. If it reverts before the delay elapses, the action is never sent. 0 = fire immediately.">&#9432;</span>
             </div>
             <div class="row">
                 <label>Force resend</label>
-                <label style="min-width:auto"><input type="checkbox" class="htt-force-resend" ${rule.force_resend?'checked':''}> re-send the ON/OFF command every poll cycle, even if unchanged</label>
+                <label style="min-width:auto"><input type="checkbox" class="htt-force-resend" ${rule.force_resend?'checked':''}> re-send this action every poll cycle while the condition holds, even after it's already fired</label>
             </div>
             <div class="row">
                 <label>Protocol</label>
@@ -219,7 +237,7 @@ function httRenderRules() {
                     <option value="webhook" ${rule.protocol==='webhook'?'selected':''}>Generic HTTP/HTTPS webhook</option>
                 </select>
             </div>
-            <div class="proto-block htt-http-block ${rule.protocol!=='mqtt'?'active':''}">
+            <div class="proto-block htt-http-block ${rule.protocol!=='mqtt'&&rule.protocol!=='webhook'?'active':''}">
                 <div class="row"><label>Device base URL</label><input type="text" class="htt-http-url" value="${(rule.http?.base_url)||''}" placeholder="http://192.168.1.50"></div>
                 <div class="row"><label>Relay index (optional)</label><input type="text" class="htt-http-idx" value="${(rule.http?.device_index)||''}" placeholder="e.g. 2 for Power2"></div>
                 <div class="row"><label>Username</label><input type="text" class="htt-http-user" value="${(rule.http?.username)||''}"></div>
@@ -234,38 +252,33 @@ function httRenderRules() {
                 <div class="row"><label>Username</label><input type="text" class="htt-mqtt-user" value="${(rule.mqtt?.username)||''}"></div>
                 <div class="row"><label>Password</label>${httPassField('htt-mqtt-pass', (rule.mqtt?.password)||'')}</div>
                 <div class="row"><button type="button" onclick="httTestMqtt(${i})">Test MQTT Connection</button></div>
-                <div class="row"><label>ON topic</label><input type="text" class="htt-mqtt-ontopic" value="${(rule.mqtt?.on_topic)||''}" placeholder="cmnd/tasmota_xx/POWER  or  zigbee2mqtt/plug/set"></div>
-                <div class="row"><label>ON payload</label><input type="text" class="htt-mqtt-onpayload" value="${(rule.mqtt?.on_payload)||'ON'}"></div>
-                <div class="row"><label>OFF topic</label><input type="text" class="htt-mqtt-offtopic" value="${(rule.mqtt?.off_topic)||''}" placeholder="leave blank to reuse ON topic"></div>
-                <div class="row"><label>OFF payload</label><input type="text" class="htt-mqtt-offpayload" value="${(rule.mqtt?.off_payload)||'OFF'}"></div>
+                <div class="row"><label>Topic</label><input type="text" class="htt-mqtt-topic" value="${(rule.mqtt?.topic)||''}" placeholder="cmnd/tasmota_xx/POWER  or  zigbee2mqtt/plug/set"></div>
+                <div class="row"><label>Payload</label><input type="text" class="htt-mqtt-payload" value="${(rule.mqtt?.payload)||(direction==='off'?'OFF':'ON')}"></div>
                 <div class="row"><label>State topic (optional)</label><input type="text" class="htt-mqtt-statetopic" value="${(rule.mqtt?.state_topic)||''}" placeholder="zigbee2mqtt/plug (device's own state topic, not /set)"></div>
                 <div class="row"><label>Payload is JSON</label><label style="min-width:auto"><input type="checkbox" class="htt-mqtt-statejson" onchange="this.closest('.row').nextElementSibling.style.display=this.checked?'':'none'" ${rule.mqtt?.state_is_json?'checked':''}> parse as JSON, e.g. zigbee2mqtt's {"state":"ON"} (leave unchecked to compare the raw payload directly)</label></div>
                 <div class="row" style="display:${rule.mqtt?.state_is_json?'':'none'}"><label>State JSON key</label><input type="text" class="htt-mqtt-statekey" value="${(rule.mqtt?.state_json_key)||'state'}" placeholder="state"></div>
+                <hr style="border:none;border-top:1px solid #666;margin:12px 0">
+                <div class="row" style="opacity:0.75">Debug-only: how to interpret the state topic's raw value, used only by "Check Device State".</div>
+                <div class="row"><label>Reports ON as</label><input type="text" class="htt-mqtt-state-on" value="${(rule.mqtt?.state_on_value)||'ON'}"></div>
+                <div class="row"><label>Reports OFF as</label><input type="text" class="htt-mqtt-state-off" value="${(rule.mqtt?.state_off_value)||'OFF'}"></div>
                 <div class="row"><button type="button" onclick="httCheckState(${i})">Check Device State</button></div>
             </div>
             <div class="proto-block htt-webhook-block ${rule.protocol==='webhook'?'active':''}">
-                <div class="row"><label>ON method</label>
-                    <select class="htt-webhook-on-method">
-                        ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${(rule.webhook?.on_method||'GET')===m?'selected':''}>${m}</option>`).join('')}
+                <div class="row"><label>Method</label>
+                    <select class="htt-webhook-method">
+                        ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${(rule.webhook?.method||'GET')===m?'selected':''}>${m}</option>`).join('')}
                     </select>
                 </div>
-                <div class="row"><label>ON URL</label><input type="text" class="htt-webhook-on-url" value="${(rule.webhook?.on_url)||''}" placeholder="https://host/api/on"></div>
-                <div class="row"><label>ON body (optional)</label><input type="text" class="htt-webhook-on-body" value="${(rule.webhook?.on_body)||''}" placeholder="raw request body for POST/PUT/PATCH"></div>
-                <div class="row"><label>OFF method</label>
-                    <select class="htt-webhook-off-method">
-                        ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${(rule.webhook?.off_method||'GET')===m?'selected':''}>${m}</option>`).join('')}
-                    </select>
-                </div>
-                <div class="row"><label>OFF URL</label><input type="text" class="htt-webhook-off-url" value="${(rule.webhook?.off_url)||''}" placeholder="https://host/api/off"></div>
-                <div class="row"><label>OFF body (optional)</label><input type="text" class="htt-webhook-off-body" value="${(rule.webhook?.off_body)||''}" placeholder="raw request body for POST/PUT/PATCH"></div>
+                <div class="row"><label>URL</label><input type="text" class="htt-webhook-url" value="${(rule.webhook?.url)||''}" placeholder="https://host/api/toggle"></div>
+                <div class="row"><label>Body (optional)</label><input type="text" class="htt-webhook-body" value="${(rule.webhook?.body)||''}" placeholder="raw request body for POST/PUT/PATCH"></div>
                 <hr style="border:none;border-top:1px solid #666;margin:12px 0">
-                <div class="row" style="opacity:0.75">Shared settings below apply to ON, OFF, and the state check.</div>
+                <div class="row" style="opacity:0.75">Shared settings below apply to the action above and the state check.</div>
                 <div class="row"><label>Headers (optional)</label><textarea class="htt-webhook-headers" style="width:320px;height:60px;font-family:monospace;font-size:12px" placeholder="Content-Type: application/json&#10;X-Api-Key: xxxx">${(rule.webhook?.headers)||''}</textarea></div>
                 <div class="row"><label>Username (optional)</label><input type="text" class="htt-webhook-user" value="${(rule.webhook?.username)||''}"></div>
                 <div class="row"><label>Password (optional)</label>${httPassField('htt-webhook-pass', (rule.webhook?.password)||'')}</div>
                 <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-webhook-insecure" ${rule.webhook?.insecure_tls?'checked':''}> Ignore invalid/self-signed HTTPS certificates</label> <span class="htt-help" title="Skips TLS certificate verification for this endpoint. Only enable for trusted LAN devices with self-signed certs - this disables protection against man-in-the-middle attacks.">&#9432;</span></div>
                 <hr style="border:none;border-top:1px solid #666;margin:12px 0">
-                <div class="row" style="opacity:0.75">Debug-only: used by "Check Device State" below, not by ON/OFF.</div>
+                <div class="row" style="opacity:0.75">Debug-only: used by "Check Device State" below, not by the action above.</div>
                 <div class="row"><label>State URL (optional)</label><input type="text" class="htt-webhook-state-url" value="${(rule.webhook?.state_url)||''}" placeholder="https://host/api/status"></div>
                 <div class="row"><label>State method</label>
                     <select class="htt-webhook-state-method">
@@ -289,12 +302,20 @@ function httToggleProto(sel) {
 
 function httToggleTriggerType(sel) {
     const box = sel.closest('.rule-box');
-    const isUsage = sel.value === 'usage';
-    box.querySelector('.htt-on-unit').textContent = isUsage ? '%' : '°C';
-    box.querySelector('.htt-off-unit').textContent = isUsage ? '%' : '°C';
+    const type = sel.value;
+    const isMetric = type === 'temp' || type === 'usage';
+    const isUsage = type === 'usage';
+    box.querySelector('.htt-disks-row').style.display = isMetric ? '' : 'none';
+    box.querySelector('.htt-aggregate-row').style.display = isMetric ? '' : 'none';
+    box.querySelector('.htt-threshold-row').style.display = isMetric ? '' : 'none';
+    box.querySelector('.htt-threshold-unit').textContent = isUsage ? '%' : '°C';
     const aggSel = box.querySelector('.htt-aggregate');
     aggSel.querySelector('option[value="max"]').textContent = `Max (${isUsage ? 'fullest' : 'hottest'} disk)`;
     aggSel.querySelector('option[value="min"]').textContent = `Min (${isUsage ? 'emptiest' : 'coolest'} disk)`;
+    const dirLabels = httDirectionLabels(type);
+    const dirSel = box.querySelector('.htt-direction');
+    dirSel.querySelector('option[value="on"]').textContent = dirLabels.on;
+    dirSel.querySelector('option[value="off"]').textContent = dirLabels.off;
 }
 
 function httToggleCollapse(i) {
@@ -306,9 +327,19 @@ function httToggleCollapse(i) {
 }
 
 function httAddRule() {
-    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], trigger_type: 'temp', aggregate: 'max', on_temp: 40, off_temp: 35, on_delay_seconds: 0, off_delay_seconds: 0, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
+    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], trigger_type: 'temp', aggregate: 'max', direction: 'on', threshold: 40, delay_seconds: 0, force_resend: false, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
+    httRenderRules();
+}
+
+function httDuplicateRule(i) {
+    httCollectRules();
+    const clone = JSON.parse(JSON.stringify(httRules[i]));
+    clone.id = httUid();
+    clone.name = (clone.name || 'Rule') + ' (copy)';
+    httRules.splice(i + 1, 0, clone);
+    httCollapsedOverride[clone.id] = false; // keep the new copy open for editing
     httRenderRules();
 }
 
@@ -334,12 +365,9 @@ function httCollectRules() {
             disks: disks,
             trigger_type: box.querySelector('.htt-trigger-type').value,
             aggregate: box.querySelector('.htt-aggregate').value,
-            on_temp: parseFloat(box.querySelector('.htt-on-temp').value),
-            off_temp: parseFloat(box.querySelector('.htt-off-temp').value),
-            on_delay_seconds: parseFloat(box.querySelector('.htt-on-delay').value) || 0,
-            off_delay_seconds: parseFloat(box.querySelector('.htt-off-delay').value) || 0,
-            trigger_on_parity_check: box.querySelector('.htt-force-parity').checked,
-            trigger_on_rebuild: box.querySelector('.htt-force-rebuild').checked,
+            direction: box.querySelector('.htt-direction').value,
+            threshold: parseFloat(box.querySelector('.htt-threshold').value),
+            delay_seconds: parseFloat(box.querySelector('.htt-delay').value) || 0,
             force_resend: box.querySelector('.htt-force-resend').checked,
             protocol: box.querySelector('.htt-protocol').value,
             http: {
@@ -355,21 +383,18 @@ function httCollectRules() {
                 insecure_tls: box.querySelector('.htt-mqtt-insecure').checked,
                 username: box.querySelector('.htt-mqtt-user').value,
                 password: box.querySelector('.htt-mqtt-pass').value,
-                on_topic: box.querySelector('.htt-mqtt-ontopic').value,
-                on_payload: box.querySelector('.htt-mqtt-onpayload').value,
-                off_topic: box.querySelector('.htt-mqtt-offtopic').value,
-                off_payload: box.querySelector('.htt-mqtt-offpayload').value,
+                topic: box.querySelector('.htt-mqtt-topic').value,
+                payload: box.querySelector('.htt-mqtt-payload').value,
                 state_topic: box.querySelector('.htt-mqtt-statetopic').value,
                 state_is_json: box.querySelector('.htt-mqtt-statejson').checked,
                 state_json_key: box.querySelector('.htt-mqtt-statekey').value || 'state',
+                state_on_value: box.querySelector('.htt-mqtt-state-on').value || 'ON',
+                state_off_value: box.querySelector('.htt-mqtt-state-off').value || 'OFF',
             },
             webhook: {
-                on_method: box.querySelector('.htt-webhook-on-method').value,
-                on_url: box.querySelector('.htt-webhook-on-url').value,
-                on_body: box.querySelector('.htt-webhook-on-body').value,
-                off_method: box.querySelector('.htt-webhook-off-method').value,
-                off_url: box.querySelector('.htt-webhook-off-url').value,
-                off_body: box.querySelector('.htt-webhook-off-body').value,
+                method: box.querySelector('.htt-webhook-method').value,
+                url: box.querySelector('.htt-webhook-url').value,
+                body: box.querySelector('.htt-webhook-body').value,
                 headers: box.querySelector('.htt-webhook-headers').value,
                 username: box.querySelector('.htt-webhook-user').value,
                 password: box.querySelector('.htt-webhook-pass').value,
@@ -396,10 +421,10 @@ function httSaveConfig() {
         });
 }
 
-function httTestRule(i, on) {
+function httTestRule(i) {
     httCollectRules();
     const rule = httRules[i];
-    httPost('action=test_command&rule=' + encodeURIComponent(JSON.stringify(rule)) + '&on=' + (on ? '1' : '0'))
+    httPost('action=test_command&rule=' + encodeURIComponent(JSON.stringify(rule)))
         .then(r => r.json()).then(d => alert(d.ok ? 'Command sent successfully' : 'Command failed - check log'));
 }
 
@@ -506,12 +531,13 @@ function httLoadStatus() {
         httLastState = d.state || {};
         document.querySelectorAll('.htt-relay-badge').forEach(badge => {
             const s = httLastState[badge.dataset.ruleId];
+            const dir = badge.dataset.direction === 'off' ? 'off' : 'on';
             badge.classList.remove('on', 'off');
-            if (!s || !s.relay) {
-                badge.textContent = 'State: unknown';
+            if (s && s.fired) {
+                badge.classList.add(dir);
+                badge.textContent = `Fired: ${dir.toUpperCase()}`;
             } else {
-                badge.classList.add(s.relay);
-                badge.textContent = `State: ${s.relay.toUpperCase()}`;
+                badge.textContent = 'Idle';
             }
         });
     });
