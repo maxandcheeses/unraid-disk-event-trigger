@@ -46,6 +46,14 @@ jobs:
           grep -q "${{ steps.ver.outputs.version }}" unraid-disk-event-trigger.plg
           grep -q "srcMD5" unraid-disk-event-trigger.plg
 
+      - name: Verify .plg is well-formed XML with all entities resolved
+        run: |
+          python3 -c "
+          from xml.dom import minidom
+          minidom.parse('unraid-disk-event-trigger.plg')
+          print('OK: .plg is well-formed XML')
+          "
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:

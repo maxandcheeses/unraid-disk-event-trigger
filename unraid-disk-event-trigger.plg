@@ -2,17 +2,21 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.12">
+<!ENTITY version   "2026.08.03.13">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "cfbe089db34810bf565d3b6165d10417">
+<!ENTITY srcMD5     "e766d324d152813f0a375076a49a9633">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.13
+- Fix: v2026.08.03.12's own CHANGES text contained an unescaped degree-sign entity reference that isn't a predefined XML entity (only &amp;amp; &amp;lt; &amp;gt; &amp;quot; &amp;apos; and this file's own declared entities are valid) - this broke *installing or updating the plugin at all* ("XML file doesn't exist or xml parse error"). Removed it and added an XML well-formedness check (resolving all entities, not just checking tag balance) to the release process so this class of bug can't ship again.
+- Add: **Move Up/Down** buttons on each rule to reorder them - rules already executed in their stored order, but there was no way to actually rearrange that order from the webGUI.
+
 ###2026.08.03.12
-- **BREAKING CONFIG CHANGE**: a rule now fires exactly one direction instead of a paired ON/OFF (on_temp/off_temp, on_topic/off_topic, on_payload/off_payload, on_url/off_url, etc. are all replaced by a single `direction` + `threshold` + action). Hysteresis (e.g. "on at 40&deg;C, off at 35&deg;C") is now achieved by pairing two rules - an ON rule and an OFF rule - rather than one rule tracking both thresholds internally. Existing rules created before this update will need to be recreated as separate ON and OFF rules; sorry for the inconvenience, but the old combined shape didn't extend cleanly to the new trigger types below.
+- **BREAKING CONFIG CHANGE**: a rule now fires exactly one direction instead of a paired ON/OFF (on_temp/off_temp, on_topic/off_topic, on_payload/off_payload, on_url/off_url, etc. are all replaced by a single `direction` + `threshold` + action). Hysteresis (e.g. "on at 40C, off at 35C") is now achieved by pairing two rules - an ON rule and an OFF rule - rather than one rule tracking both thresholds internally. Existing rules created before this update will need to be recreated as separate ON and OFF rules; sorry for the inconvenience, but the old combined shape didn't extend cleanly to the new trigger types below.
 - Add: **Duplicate** button on each rule, to quickly clone one (e.g. to create the paired opposite-direction rule for hysteresis, or a similar rule for another device).
 - Add: parity check and array/data rebuild are now full trigger types (alongside disk temperature/usage), each with their own ON/OFF rules that fire directly off Unraid's array-operation state - replacing the old "also force ON during parity check/rebuild" checkboxes that only modified temperature rules.
 - Change: the rule state badge now shows "Fired: ON/OFF" or "Idle" instead of a device relay state, matching the single-direction model.

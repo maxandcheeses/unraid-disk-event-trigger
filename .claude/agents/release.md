@@ -20,6 +20,11 @@ The version scheme is a date: `YYYY.MM.DD` (e.g. `2026.08.02`), matching the `<!
    - Bump `<!ENTITY version   "...">` to the new version.
    - Add a new `###YYYY.MM.DD` entry at the top of `<CHANGES>` summarizing what changed since the last release (look at `git log` since the last tag for this). Keep it to a few bullet points, written for end users, not a raw commit dump.
 5. Run `./build.sh` locally as a sanity check — it must complete without error and produce `unraid-disk-event-trigger.txz` with an updated MD5 in the `.plg`. This local `.txz` is gitignored and not published directly; it's just a smoke test that packaging works before pushing the tag (the GitHub Actions workflow rebuilds it fresh for the actual release).
+5a. Verify the `.plg` is well-formed XML with entities resolved — `xml.dom.minidom` (unlike a naive tag-balance check) actually validates entity references, catching things like a stray `&deg;` in CHANGES text that isn't a predefined XML entity:
+   ```
+   python3 -c "from xml.dom import minidom; minidom.parse('unraid-disk-event-trigger.plg')"
+   ```
+   A version that fails this silently breaks *all* installs/updates ("XML file doesn't exist or xml parse error") - do not tag or push if it fails. This check also runs in CI (release.yml) as a second gate, but catch it locally first.
 6. Commit the `.plg` change: `git commit -am "Release vX.Y.Z"` (only stage the `.plg`, not the local `.txz`).
 7. Push the commit to `main`, then create and push the tag: `git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z`.
 8. Confirm the workflow picked it up: `gh run list --workflow=release.yml --limit 3` (if `gh` is authenticated) or tell the user to check the Actions tab. Report the release URL: `https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/tag/vX.Y.Z`.
