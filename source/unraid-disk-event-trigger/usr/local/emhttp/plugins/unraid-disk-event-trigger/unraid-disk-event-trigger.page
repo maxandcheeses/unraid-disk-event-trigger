@@ -258,10 +258,14 @@ function httRenderRules() {
                 </div>
                 <div class="row"><label>OFF URL</label><input type="text" class="htt-webhook-off-url" value="${(rule.webhook?.off_url)||''}" placeholder="https://host/api/off"></div>
                 <div class="row"><label>OFF body (optional)</label><input type="text" class="htt-webhook-off-body" value="${(rule.webhook?.off_body)||''}" placeholder="raw request body for POST/PUT/PATCH"></div>
+                <hr style="border:none;border-top:1px solid #666;margin:12px 0">
+                <div class="row" style="opacity:0.75">Shared settings below apply to ON, OFF, and the state check.</div>
                 <div class="row"><label>Headers (optional)</label><textarea class="htt-webhook-headers" style="width:320px;height:60px;font-family:monospace;font-size:12px" placeholder="Content-Type: application/json&#10;X-Api-Key: xxxx">${(rule.webhook?.headers)||''}</textarea></div>
                 <div class="row"><label>Username (optional)</label><input type="text" class="htt-webhook-user" value="${(rule.webhook?.username)||''}"></div>
                 <div class="row"><label>Password (optional)</label>${httPassField('htt-webhook-pass', (rule.webhook?.password)||'')}</div>
                 <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-webhook-insecure" ${rule.webhook?.insecure_tls?'checked':''}> Ignore invalid/self-signed HTTPS certificates</label> <span class="htt-help" title="Skips TLS certificate verification for this endpoint. Only enable for trusted LAN devices with self-signed certs - this disables protection against man-in-the-middle attacks.">&#9432;</span></div>
+                <hr style="border:none;border-top:1px solid #666;margin:12px 0">
+                <div class="row" style="opacity:0.75">Debug-only: used by "Check Device State" below, not by ON/OFF.</div>
                 <div class="row"><label>State URL (optional)</label><input type="text" class="htt-webhook-state-url" value="${(rule.webhook?.state_url)||''}" placeholder="https://host/api/status"></div>
                 <div class="row"><label>State method</label>
                     <select class="htt-webhook-state-method">
