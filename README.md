@@ -44,30 +44,17 @@ switch doesn't chatter near the threshold.
 ## Layout
 
 ```
-source/unraid-disk-event-trigger/
-    files as they land on the Unraid filesystem
-
+source/unraid-disk-event-trigger/          # files as they land on the Unraid filesystem
   usr/local/emhttp/plugins/unraid-disk-event-trigger/
-    unraid-disk-event-trigger.page
-        webGUI settings page
-    include/lib.php
-        config I/O, disk temps/usage, rule engine, HTTP/MQTT/webhook senders
-    include/handler.php
-        AJAX endpoint used by the page
-    scripts/poll_daemon.php
-        the long-running poller
+    unraid-disk-event-trigger.page         # webGUI settings page
+    include/lib.php                        # config I/O, disk temps/usage, rule engine, HTTP/MQTT/webhook senders
+    include/handler.php                    # AJAX endpoint used by the page
+    scripts/poll_daemon.php                # the long-running poller
+  etc/rc.d/rc.unraid-disk-event-trigger    # init script (start/stop/restart/status)
+  boot/config/plugins/unraid-disk-event-trigger/  # persistent config (rules.json)
 
-  etc/rc.d/rc.unraid-disk-event-trigger
-    init script (start/stop/restart/status)
-
-  boot/config/plugins/unraid-disk-event-trigger/
-    persistent config (rules.json)
-
-unraid-disk-event-trigger.plg
-    Unraid plugin installer manifest
-
-build.sh
-    packages source/ into unraid-disk-event-trigger.txz and updates the MD5 in the .plg
+unraid-disk-event-trigger.plg   # Unraid plugin installer manifest
+build.sh                        # packages source/ into unraid-disk-event-trigger.txz and updates the MD5 in the .plg
 ```
 
 ## Building & installing
