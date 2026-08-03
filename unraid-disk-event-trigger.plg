@@ -5,7 +5,7 @@
 <!ENTITY version   "2026.08.03.3">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "9ba768c2f2bcaddfc9361a3bf076f368">
+<!ENTITY srcMD5     "1d6432072519d04f0af2acf561e908e9">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
