@@ -2,15 +2,19 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.15">
+<!ENTITY version   "2026.08.03.16">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "6bed2f2d9277e47ae744731e6fceb28c">
+<!ENTITY srcMD5     "4d80ee685d970653c3a1506730c00cf0">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.16
+- Fix: folding/unfolding a rule (or adding a new one) re-rendered every rule box from the in-memory rules array without first syncing unsaved DOM edits back into it - so editing one rule and then folding/unfolding *any* rule (or clicking "+ Add Rule") silently discarded those edits. Both actions now collect current form values before re-rendering.
+- Fix: the rule header's Remove/Duplicate/Move/Test buttons used `float:right`, which has no effect inside the header's flex layout - they just sat in DOM order after the state badge, shifting left/right whenever the badge's text changed length ("Idle" vs "Fired: ON"). Wrapped them in their own right-aligned flex group and gave the badge a fixed minimum width so neither shifts anymore.
+
 ###2026.08.03.15
 - Fix: parity check/rebuild direction labels said "Fire when it starts"/"Fire when it ends", implying the poller only catches the exact transition moment. It's actually level-triggered - an ON rule fires whenever a poll cycle sees the operation active, so it correctly fires even if the operation was already running before the poller noticed (or before/after a plugin restart). Relabeled to "Turn ON while active"/"Turn OFF while inactive".
 
