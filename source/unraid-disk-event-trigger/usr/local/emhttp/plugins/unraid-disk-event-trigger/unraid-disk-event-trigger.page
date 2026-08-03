@@ -185,14 +185,12 @@ function httRenderRules() {
             <div class="row">
                 <label>Turn ON at &ge;</label>
                 <input type="number" class="htt-on-temp" value="${rule.on_temp ?? 40}"> &deg;C
+                &nbsp;&nbsp;delay <input type="number" class="htt-on-delay" min="0" style="width:70px" value="${rule.on_delay_seconds ?? 0}"> sec
             </div>
             <div class="row">
                 <label>Turn OFF at &le;</label>
                 <input type="number" class="htt-off-temp" value="${rule.off_temp ?? 35}"> &deg;C
-            </div>
-            <div class="row">
-                <label>Turn on/off delay</label>
-                <input type="number" class="htt-delay-seconds" min="0" value="${rule.delay_seconds ?? 0}"> seconds - only send the command once the threshold has been continuously crossed for this long
+                &nbsp;&nbsp;delay <input type="number" class="htt-off-delay" min="0" style="width:70px" value="${rule.off_delay_seconds ?? 0}"> sec
             </div>
             <div class="row">
                 <label>Also force ON during</label>
@@ -253,7 +251,7 @@ function httToggleCollapse(i) {
 }
 
 function httAddRule() {
-    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], aggregate: 'max', on_temp: 40, off_temp: 35, delay_seconds: 0, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {} };
+    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], aggregate: 'max', on_temp: 40, off_temp: 35, on_delay_seconds: 0, off_delay_seconds: 0, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
     httRenderRules();
@@ -282,7 +280,8 @@ function httCollectRules() {
             aggregate: box.querySelector('.htt-aggregate').value,
             on_temp: parseFloat(box.querySelector('.htt-on-temp').value),
             off_temp: parseFloat(box.querySelector('.htt-off-temp').value),
-            delay_seconds: parseFloat(box.querySelector('.htt-delay-seconds').value) || 0,
+            on_delay_seconds: parseFloat(box.querySelector('.htt-on-delay').value) || 0,
+            off_delay_seconds: parseFloat(box.querySelector('.htt-off-delay').value) || 0,
             trigger_on_parity_check: box.querySelector('.htt-force-parity').checked,
             trigger_on_rebuild: box.querySelector('.htt-force-rebuild').checked,
             force_resend: box.querySelector('.htt-force-resend').checked,

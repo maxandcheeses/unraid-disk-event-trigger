@@ -64,7 +64,8 @@ function htt_validate_config($config) {
         if (!is_array($rule)) { $errors[] = "$label must be a mapping"; continue; }
         if (isset($rule['on_temp']) && !is_numeric($rule['on_temp'])) $errors[] = "$label: on_temp must be a number";
         if (isset($rule['off_temp']) && !is_numeric($rule['off_temp'])) $errors[] = "$label: off_temp must be a number";
-        if (isset($rule['delay_seconds']) && (!is_numeric($rule['delay_seconds']) || $rule['delay_seconds'] < 0)) $errors[] = "$label: delay_seconds must be a non-negative number";
+        if (isset($rule['on_delay_seconds']) && (!is_numeric($rule['on_delay_seconds']) || $rule['on_delay_seconds'] < 0)) $errors[] = "$label: on_delay_seconds must be a non-negative number";
+        if (isset($rule['off_delay_seconds']) && (!is_numeric($rule['off_delay_seconds']) || $rule['off_delay_seconds'] < 0)) $errors[] = "$label: off_delay_seconds must be a non-negative number";
         if (isset($rule['protocol']) && !in_array($rule['protocol'], ['http', 'mqtt'], true)) {
             $errors[] = "$label: protocol must be 'http' or 'mqtt'";
         }
@@ -730,7 +731,7 @@ function htt_run_cycle() {
         $state[$id]['forced_by_array_op'] = $forceOn;
 
         $isTransition = in_array($desiredRelay, ['on', 'off'], true) && $desiredRelay !== $prev;
-        $delaySec = $forceOn ? 0 : floatval($rule['delay_seconds'] ?? 0);
+        $delaySec = $forceOn ? 0 : floatval(($desiredRelay === 'on' ? $rule['on_delay_seconds'] : $rule['off_delay_seconds']) ?? 0);
 
         // A pending transition must keep wanting the same new state across
         // cycles for the full delay before it's actually sent - if the
