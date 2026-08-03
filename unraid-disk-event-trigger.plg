@@ -2,15 +2,21 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02">
+<!ENTITY version   "2026.08.02.1">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "ec02322be1c8073b93a086a7b21a8487">
+<!ENTITY srcMD5     "1777fa659714f3da1bcd137d868926e1">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.1
+- Fix: .plg install script's heredoc broke XML parsing, causing "XML file doesn't exist or xml parse error" during install.
+- Fix: srcURL used the un-prefixed version for the release tag, causing a 404 on the .txz download during install.
+- Fix: disk temperature table stayed empty on page load/refresh (get_status returned disks as a JSON object instead of an array).
+- All three issues found and fixed by installing and exercising the plugin end-to-end on a real Unraid 7.3.2 box.
+
 ###2026.08.02
 - Initial release: SMART disk temp monitoring with HTTP/MQTT (Tasmota &amp; zigbee2mqtt) triggers, MQTT username/password auth, and optional forced-on triggers during parity checks and array rebuilds.
 </CHANGES>
