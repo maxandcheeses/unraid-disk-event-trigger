@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02.10">
+<!ENTITY version   "2026.08.02.11">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "9532efaf854c74ad5278e054d368ac34">
+<!ENTITY srcMD5     "1b6b26ae614ae057c85fc059faa7f487">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.11
+- Add: tooltip on each on/off delay field explaining what it does.
+
 ###2026.08.02.10
 - Change: the on/off delay is now two independent settings - "Turn ON at" and "Turn OFF at" each have their own delay field shown right next to the temperature, instead of one shared delay for both directions.
 
