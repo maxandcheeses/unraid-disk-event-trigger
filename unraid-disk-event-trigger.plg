@@ -24,12 +24,7 @@
 <INLINE>
 mkdir -p /boot/config/plugins/&name;
 if [ ! -f /boot/config/plugins/&name;/rules.json ]; then
-  cat > /boot/config/plugins/&name;/rules.json <<'EOF'
-{
-    "poll_interval": 60,
-    "rules": []
-}
-EOF
+  printf '%s\n' '{' '    "poll_interval": 60,' '    "rules": []' '}' > /boot/config/plugins/&name;/rules.json
 fi
 chmod +x /etc/rc.d/rc.unraid-disk-event-trigger
 /etc/rc.d/rc.unraid-disk-event-trigger restart
