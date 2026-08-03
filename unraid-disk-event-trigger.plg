@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02.9">
+<!ENTITY version   "2026.08.02.10">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "f2c81f3389b38ecfce285c4ed023fae5">
+<!ENTITY srcMD5     "957b5f3999af989d3958766c21980660">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.10
+- Change: the on/off delay is now two independent settings - "Turn ON at" and "Turn OFF at" each have their own delay field shown right next to the temperature, instead of one shared delay for both directions.
+
 ###2026.08.02.9
 - Add: optional per-rule "turn on/off delay" (seconds). When set, a threshold crossing is only sent once the condition has held continuously for that long; if it reverts before then, the pending change is cancelled. Forced-ON during a parity check/rebuild still fires immediately, bypassing the delay.
 
