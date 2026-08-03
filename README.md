@@ -16,8 +16,10 @@ webhooks when a condition is met.
   - **Disk temperature** / **Disk usage %** — a threshold over any subset of
     array/cache disks (or "all"), aggregated by max/avg/min.
   - **Parity check** / **Array/data rebuild** — fires directly off Unraid's
-    own `mdResync`/`mdResyncAction` state (e.g. an ON rule that fires when a
-    parity check starts, paired with an OFF rule that fires when it ends) —
+    own `mdResync`/`mdResyncAction` state, evaluated fresh every poll cycle
+    (an ON rule fires while one is active, an OFF rule while none is - so it
+    fires correctly even if the operation was already running before the
+    poller noticed, not just at the exact moment it starts/ends) —
     independent of any temperature/usage rules.
 - Three action protocols per rule:
   - **HTTP**: Tasmota's native `http://<ip>/cm?cmnd=Power On|Off` API.
@@ -124,9 +126,11 @@ build.sh                        # packages source/ into unraid-disk-event-trigge
 single action this rule fires. For `temp`/`usage` rules, `threshold` is
 compared against the aggregated value (`>=` for an `"on"` rule, `<=` for an
 `"off"` rule); `threshold` is unused for `parity_check`/`rebuild` rules,
-which instead fire when the array operation starts (`"on"`) or ends
-(`"off"`). `delay_seconds` requires the condition to hold continuously
-before firing (0 = immediately).
+whose condition is instead just whether the array operation is currently
+active (`"on"`) or not (`"off"`), re-checked every poll cycle - so it fires
+correctly even if the operation was already underway before the poller
+noticed, not just at the instant it starts/ends. `delay_seconds` requires
+the condition to hold continuously before firing (0 = immediately).
 
 Per-rule fired/idle state (so a rule doesn't refire every poll cycle once
 its condition has fired) is cached at

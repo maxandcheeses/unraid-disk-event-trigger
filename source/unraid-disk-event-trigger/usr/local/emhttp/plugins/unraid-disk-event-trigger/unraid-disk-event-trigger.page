@@ -121,7 +121,7 @@ function httBadgeHtml(rule) {
 /** Direction dropdown option labels, which depend on the trigger type. */
 function httDirectionLabels(triggerType) {
     if (triggerType === 'parity_check' || triggerType === 'rebuild') {
-        return { on: 'Fire when it starts', off: 'Fire when it ends' };
+        return { on: 'Turn ON while active (fires immediately if already running)', off: 'Turn OFF while inactive' };
     }
     return { on: 'Turn ON when value rises to ≥ threshold', off: 'Turn OFF when value falls to ≤ threshold' };
 }
