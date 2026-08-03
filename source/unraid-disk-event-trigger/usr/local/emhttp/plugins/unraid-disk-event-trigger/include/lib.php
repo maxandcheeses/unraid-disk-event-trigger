@@ -287,7 +287,7 @@ function htt_query_http_state($rule) {
  * without publishing anything. Returns
  * ['ok'=>bool, 'payload'=>string|null, 'topic'=>string|null, 'error'=>string].
  */
-function htt_mqtt_read_one($host, $port, $username, $password, $topic, $timeout = 4) {
+function htt_mqtt_read_one($host, $port, $username, $password, $topic, $timeout = 4, $triggerTopic = null, $triggerPayload = null) {
     if ($host === '') return ['ok' => false, 'payload' => null, 'topic' => null, 'error' => 'no broker host configured'];
     if ($topic === '') return ['ok' => false, 'payload' => null, 'topic' => null, 'error' => 'no state topic configured'];
 
@@ -299,6 +299,14 @@ function htt_mqtt_read_one($host, $port, $username, $password, $topic, $timeout 
 
     $body = pack('n', 1) . htt_mqtt_str($topic) . chr(0); // SUBSCRIBE, packet id 1, QoS 0
     fwrite($sock, chr(0x82) . htt_mqtt_len(strlen($body)) . $body);
+
+    if ($triggerTopic !== null && $triggerTopic !== '') {
+        // Many devices (e.g. zigbee2mqtt) don't retain state and only
+        // report on change; publishing to their .../get topic asks them
+        // to report right now instead of waiting on luck.
+        $pubBody = htt_mqtt_str($triggerTopic) . ($triggerPayload ?? '');
+        fwrite($sock, chr(0x30) . htt_mqtt_len(strlen($pubBody)) . $pubBody);
+    }
 
     $payload = null;
     $recvTopic = null;
@@ -352,7 +360,11 @@ function htt_mqtt_read_one($host, $port, $username, $password, $topic, $timeout 
 function htt_query_mqtt_state($rule) {
     $m = $rule['mqtt'] ?? [];
     $topic = $m['state_topic'] ?? '';
-    $result = htt_mqtt_read_one($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '', $topic);
+    // zigbee2mqtt (and similar bridges) often don't retain state and only
+    // report on change; asking on its .../get topic prompts an immediate
+    // report instead of waiting on a retained message that may not exist.
+    $getTopic = substr($topic, -4) === '/get' ? null : $topic . '/get';
+    $result = htt_mqtt_read_one($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '', $topic, 5, $getTopic, '{"state":""}');
     if (!$result['ok']) return ['ok' => false, 'state' => null, 'raw' => '', 'error' => $result['error']];
 
     $payload = $result['payload'];
