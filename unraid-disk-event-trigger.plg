@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.9">
+<!ENTITY version   "2026.08.03.10">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "da5e0c7aac36fb6edd86d7141a5009cd">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.10
+- Fix: updates silently failed to actually replace the installed files since the very first release, even though Settings &gt; Plugins showed the new version number as "up-to-date". The locally-installed package file was always named the same literal `unraid-disk-event-trigger.txz` with no version in the filename, so Slackware's `upgradepkg` saw an identical package name/version on every release and skipped reinstalling - only the `.plg`'s own version metadata (a separate field) was actually being refreshed. The package is now installed under a properly versioned filename (`unraid-disk-event-trigger-&lt;version&gt;-noarch-1.txz`) so each release is correctly detected and installed. If you're on an older version, this fix itself needs one more manual update/reinstall to take effect (via Check for Updates, or reinstalling with the .plg URL) - after that, updates will apply correctly going forward.
+
 ###2026.08.03.9
 - Fix: the in-package README.md (which Unraid's Settings &gt; Plugins page reads as the plugin description) was stale, still only describing Tasmota/MQTT temperature triggers - updated to mention the webhook protocol, MQTT TLS, and disk usage % triggers.
 
@@ -101,7 +104,7 @@
 - Initial release: SMART disk temp monitoring with HTTP/MQTT (Tasmota &amp; zigbee2mqtt) triggers, MQTT username/password auth, and optional forced-on triggers during parity checks and array rebuilds.
 </CHANGES>
 
-<FILE Name="/boot/config/plugins/&name;/&name;.txz" Run="upgradepkg --install-new">
+<FILE Name="/boot/config/plugins/&name;/&name;-&version;-noarch-1.txz" Run="upgradepkg --install-new">
 <URL>&srcURL;</URL>
 <MD5>&srcMD5;</MD5>
 </FILE>
@@ -109,6 +112,11 @@
 <FILE Run="/bin/bash">
 <INLINE>
 mkdir -p /boot/config/plugins/&name;
+# Remove previous release's package file(s), now that the package name is
+# properly versioned (name-version-noarch-1.txz) so upgradepkg reliably
+# detects and installs each new version instead of silently no-opping on an
+# unversioned filename that never changed across releases.
+find /boot/config/plugins/&name; -maxdepth 1 -name '&name;-*-noarch-1.txz' ! -name '&name;-&version;-noarch-1.txz' -delete
 if [ ! -f /boot/config/plugins/&name;/rules.json ]; then
   printf '%s\n' '{' '    "poll_interval": 60,' '    "rules": []' '}' > /boot/config/plugins/&name;/rules.json
 fi
