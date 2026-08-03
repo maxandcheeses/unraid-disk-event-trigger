@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.1">
+<!ENTITY version   "2026.08.03.2">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "3818b6be7c5bf44f0515304537a1e728">
+<!ENTITY srcMD5     "723db2fd4d7e5050a4612a14a3d846eb">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.03.2
+- Fix: icon still didn't show on the plugin's own page (only the Settings/Utilities tile picked it up). That header icon is driven by a separate "Tag" attribute, resolved from &lt;plugin&gt;/icons/&lt;tag&gt; - now set. Verified server-side by invoking Unraid's actual icon-resolving functions against the deployed files before releasing, rather than assuming.
+
 ###2026.08.03.1
 - Fix: custom plugin icon didn't actually show up. The Settings/Utilities tile grid resolves a .png Icon via &lt;plugin&gt;/images/&lt;icon&gt; (falling back to the plugin root), not &lt;plugin&gt;/icons/&lt;icon&gt; like the top-nav utility buttons do - the icon is now shipped in both locations.
 
