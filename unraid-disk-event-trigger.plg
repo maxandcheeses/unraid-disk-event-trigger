@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.5">
+<!ENTITY version   "2026.08.03.6">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "bbbc2bb970e995f9113ffcee38d7bc5f">
+<!ENTITY srcMD5     "36801102e8fb6e70a6b64f3b1a9c7a4d">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.6
+- Change: replaced the icon with a bolder-stroke version so it's actually legible at Unraid's small fixed icon size (the previous thin-outline artwork stayed faint even after cropping/dilation attempts).
+
 ###2026.08.03.5
 - Change: thickened the icon's line strokes so it reads clearly and looks appropriately bold at Unraid's small fixed icon sizes, not just faint thin outlines.
 
