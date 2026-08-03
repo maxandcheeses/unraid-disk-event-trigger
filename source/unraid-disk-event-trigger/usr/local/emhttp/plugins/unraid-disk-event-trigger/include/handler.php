@@ -39,6 +39,11 @@ switch ($action) {
         $lines = file_exists(HTT_LOG_FILE) ? array_slice(file(HTT_LOG_FILE), -200) : [];
         respond(['log' => implode('', array_reverse($lines))]);
 
+    case 'clear_log':
+        file_put_contents(HTT_LOG_FILE, '');
+        htt_log('Log cleared by user');
+        respond(['ok' => true]);
+
     case 'service_control':
         $cmd = $_POST['cmd'] ?? '';
         if (!in_array($cmd, ['start', 'stop', 'restart'])) respond(['ok' => false]);

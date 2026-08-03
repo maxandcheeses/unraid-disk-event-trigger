@@ -73,6 +73,7 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 
   <h3>Log</h3>
   <button type="button" onclick="httLoadLog()">Refresh Log</button>
+  <button type="button" onclick="httClearLog()">Clear Log</button>
   <div id="htt-log"></div>
 </div>
 
@@ -311,6 +312,11 @@ function httLoadLog() {
     fetch(HTT_ENDPOINT + '?action=get_log', { credentials: 'same-origin' }).then(r => r.json()).then(d => {
         document.getElementById('htt-log').innerHTML = '<div id="htt-status">' + (d.log || '(empty)').replace(/</g,'&lt;') + '</div>';
     });
+}
+
+function httClearLog() {
+    if (!confirm('Clear the log?')) return;
+    httPost('action=clear_log').then(r => r.json()).then(() => httLoadLog());
 }
 
 httRenderRules();
