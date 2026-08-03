@@ -980,6 +980,31 @@ function htt_eval_condition($cond, $disks, $array) {
     return ['met' => $met, 'reason' => $reason];
 }
 
+/**
+ * Debug-only: evaluate a rule's conditions right now (against live
+ * disk/array state, no side effects) and report each one's individual
+ * result plus the running AND/OR result after it, so the webGUI can show
+ * exactly which condition(s) are making the rule true or false.
+ */
+function htt_test_conditions($rule) {
+    $disks = htt_list_disks();
+    $array = htt_array_status();
+    $steps = [];
+    $running = null;
+    foreach (htt_rule_conditions($rule) as $idx => $cond) {
+        $result = htt_eval_condition($cond, $disks, $array);
+        $join = ($cond['join'] ?? 'and') === 'or' ? 'or' : 'and';
+        if ($result['met'] === null) {
+            $steps[] = ['join' => $idx > 0 ? $join : null, 'trigger_type' => $cond['trigger_type'] ?? 'temp', 'reason' => 'no data available (disk spun down, or usage unavailable)', 'met' => null, 'running' => null];
+            $running = null;
+            continue;
+        }
+        $running = ($idx === 0) ? $result['met'] : ($running === null ? $result['met'] : ($join === 'or' ? ($running || $result['met']) : ($running && $result['met'])));
+        $steps[] = ['join' => $idx > 0 ? $join : null, 'trigger_type' => $cond['trigger_type'] ?? 'temp', 'reason' => $result['reason'], 'met' => $result['met'], 'running' => $running];
+    }
+    return ['ok' => true, 'overall' => $running === true, 'steps' => $steps];
+}
+
 function htt_run_cycle() {
     $config = htt_load_config();
     if (!($config['enabled'] ?? true)) return; // plugin disabled at the top level - skip the whole cycle

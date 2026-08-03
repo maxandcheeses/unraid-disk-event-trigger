@@ -121,6 +121,11 @@ switch ($action) {
         }
         respond(['ok' => $ok]);
 
+    case 'test_conditions':
+        $rule = json_decode($_POST['rule'] ?? '', true);
+        if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
+        respond(htt_test_conditions($rule));
+
     case 'test_connection':
         $conn = json_decode($_POST['connection'] ?? '', true);
         if (!is_array($conn)) respond(['ok' => false, 'error' => 'invalid connection']);

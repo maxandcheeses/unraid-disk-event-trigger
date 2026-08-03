@@ -211,6 +211,7 @@ function httConditionBlock(cond, ruleIndex, condIndex, totalConditions) {
                     <option value="parity_check" ${triggerType==='parity_check'?'selected':''}>Parity check</option>
                     <option value="rebuild" ${triggerType==='rebuild'?'selected':''}>Array/data rebuild</option>
                 </select>
+                <button type="button" onclick="httDuplicateCondition(${ruleIndex},${condIndex})" style="margin-left:8px">Duplicate condition</button>
                 ${totalConditions > 1 ? `<button type="button" onclick="httRemoveCondition(${ruleIndex},${condIndex})" style="margin-left:8px">Remove condition</button>` : ''}
             </div>
             <div class="row htt-cond-disks-row" style="display:${isMetric?'':'none'}">
@@ -267,6 +268,15 @@ function httAddCondition(ruleIndex) {
 function httRemoveCondition(ruleIndex, condIndex) {
     httCollectRules();
     httRules[ruleIndex].conditions.splice(condIndex, 1);
+    httRenderRules();
+}
+
+function httDuplicateCondition(ruleIndex, condIndex) {
+    httCollectRules();
+    const conditions = httRules[ruleIndex].conditions;
+    const clone = JSON.parse(JSON.stringify(conditions[condIndex]));
+    clone.join = 'and'; // the clone is inserted after the original, so it needs its own join (defaults to AND, editable like any other condition)
+    conditions.splice(condIndex + 1, 0, clone);
     httRenderRules();
 }
 
@@ -468,7 +478,11 @@ function httRenderRules() {
             <div class="rule-body">
             <div class="row" style="opacity:0.75">Conditions <span class="htt-help" title="This rule fires once its conditions evaluate true, combined left-to-right with each condition's own AND/OR (no parentheses/precedence) - e.g. 'disk temp &#8804; 35C' AND 'no parity check/rebuild active', so a temperature-driven fan-off doesn't fight a separate 'keep the fan on during parity check' rule over the same relay.">&#9432;</span></div>
             <div class="htt-conditions">${rule.conditions.map((cond, ci) => httConditionBlock(cond, i, ci, rule.conditions.length)).join('')}</div>
-            <div class="row"><button type="button" onclick="httAddCondition(${i})">+ Add Condition</button></div>
+            <div class="row">
+                <button type="button" onclick="httAddCondition(${i})">+ Add Condition</button>
+                <button type="button" onclick="httTestConditions(${i})" title="Evaluates these conditions right now against live disk/array state, without sending any command">Test Conditions</button>
+            </div>
+            <div class="htt-cond-results"></div>
             <hr style="border:none;border-top:1px solid #666;margin:12px 0">
             <div class="row">
                 <label>Action</label>
@@ -719,6 +733,34 @@ function httTestRule(i) {
     const rule = httRules[i];
     httPost('action=test_command&rule=' + encodeURIComponent(JSON.stringify(rule)))
         .then(r => r.json()).then(d => alert(d.ok ? 'Command sent successfully' : 'Command failed - check log'));
+}
+
+function httTestConditions(i) {
+    httCollectRules();
+    const rule = httRules[i];
+    const box = document.querySelector(`.rule-box[data-index="${i}"]`);
+    const resultsEl = box?.querySelector('.htt-cond-results');
+    if (resultsEl) resultsEl.innerHTML = '<div class="row" style="opacity:0.75">Testing...</div>';
+    httPost('action=test_conditions&rule=' + encodeURIComponent(JSON.stringify(rule)))
+        .then(r => r.json()).then(d => {
+            if (!resultsEl) return;
+            if (!d.ok) { resultsEl.innerHTML = `<div class="row" style="color:#cf5b5b">Error: ${d.error || 'unknown error'}</div>`; return; }
+            const typeLabels = { temp: 'Disk temperature', usage: 'Disk usage %', parity_check: 'Parity check', rebuild: 'Array/data rebuild' };
+            let html = '<div style="border:1px solid #555;border-radius:4px;padding:8px;margin-top:6px">';
+            d.steps.forEach((s, si) => {
+                const label = typeLabels[s.trigger_type] || s.trigger_type;
+                const icon = s.met === null ? '?' : (s.met ? '&#10003;' : '&#10007;');
+                const color = s.met === null ? '#999' : (s.met ? '#2ea043' : '#cf5b5b');
+                const joinPrefix = s.join ? `${s.join.toUpperCase()} ` : '';
+                html += `<div class="row" style="color:${color}">${joinPrefix}<b>${icon}</b> ${label}: ${s.reason || 'unavailable'}</div>`;
+            });
+            html += `<hr style="border:none;border-top:1px solid #666;margin:8px 0">`;
+            html += `<div class="row" style="color:${d.overall?'#2ea043':'#cf5b5b'}"><b>Overall: ${d.overall ? 'TRUE - would fire' : 'FALSE - would not fire'}</b></div>`;
+            html += '</div>';
+            resultsEl.innerHTML = html;
+        }).catch(err => {
+            if (resultsEl) resultsEl.innerHTML = `<div class="row" style="color:#cf5b5b">Error: ${err}</div>`;
+        });
 }
 
 function httCheckState(i) {
