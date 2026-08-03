@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.26">
+<!ENTITY version   "2026.08.03.27">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "dbe8676311e6d8ba4e6a6a3715b4069a">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.27
+- Add: clicking a rule's "Fired"/"Idle" status badge now clears its fired flag (only does anything when it's currently Fired) - a quick manual reset without needing "Check Device State" or waiting for the condition to clear on its own. The rule re-fires next poll cycle if its condition is still met.
+
 ###2026.08.03.26
 - Add: **Next poll cycle** countdown under Service, so you can see at a glance when the poller will next check conditions instead of guessing from the configured interval.
 - Add: a rule can now name other rules to **also reset** when it fires (transitions from not-fired to fired) - e.g. an ON rule resetting its paired OFF rule's fired flag, so hysteresis pairs don't get stuck. Only happens on that transition, not on every force-resend re-assertion.

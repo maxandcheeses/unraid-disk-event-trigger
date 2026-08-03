@@ -158,7 +158,25 @@ function httBadgeHtml(rule) {
     const s = httLastState[rule.id];
     const fired = !!(s && s.fired);
     const text = fired ? 'Fired' : 'Idle';
-    return `<span class="htt-relay-badge ${fired?'on':''}" data-rule-id="${rule.id||''}">${text}</span>`;
+    const title = fired
+        ? 'Click to clear the fired flag - the rule will re-fire next cycle if its condition is still met.'
+        : 'Already idle (nothing to clear).';
+    return `<span class="htt-relay-badge ${fired?'on':''}" data-rule-id="${rule.id||''}" onclick="httClearFired('${rule.id||''}')" title="${title}" style="cursor:pointer">${text}</span>`;
+}
+
+function httClearFired(ruleId) {
+    if (!ruleId) return;
+    httPost('action=clear_fired&id=' + encodeURIComponent(ruleId))
+        .then(r => r.json()).then(d => {
+            if (d.ok) {
+                if (httLastState[ruleId]) httLastState[ruleId].fired = false;
+                document.querySelectorAll(`.htt-relay-badge[data-rule-id="${ruleId}"]`).forEach(badge => {
+                    badge.classList.remove('on');
+                    badge.textContent = 'Idle';
+                    badge.title = 'Already idle (nothing to clear).';
+                });
+            }
+        });
 }
 
 /** Direction dropdown option labels, which depend on the trigger type. */
@@ -1015,6 +1033,9 @@ function httLoadStatus() {
             const fired = !!(s && s.fired);
             badge.classList.toggle('on', fired);
             badge.textContent = fired ? 'Fired' : 'Idle';
+            badge.title = fired
+                ? 'Click to clear the fired flag - the rule will re-fire next cycle if its condition is still met.'
+                : 'Already idle (nothing to clear).';
         });
     });
 }

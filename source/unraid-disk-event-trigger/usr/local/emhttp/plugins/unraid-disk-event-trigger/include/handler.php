@@ -77,6 +77,15 @@ switch ($action) {
         if ($errors) respond(['ok' => false, 'error' => implode('; ', $errors)]);
         respond(htt_apply_config($config));
 
+    case 'clear_fired':
+        $id = $_POST['id'] ?? '';
+        if ($id === '') respond(['ok' => false, 'error' => 'missing rule id']);
+        $state = htt_load_state();
+        unset($state[$id]['fired'], $state[$id]['pending_since']);
+        htt_save_state($state);
+        htt_log("Fired state manually cleared for rule id '$id'");
+        respond(['ok' => true]);
+
     case 'get_status':
         $disks = htt_list_disks();
         foreach ($disks as &$d) {
