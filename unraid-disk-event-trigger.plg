@@ -2,15 +2,19 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02.7">
+<!ENTITY version   "2026.08.02.8">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "5e67cbc14e8f270e7d644018d1fcd197">
+<!ENTITY srcMD5     "e659baf6f60bcd2c7805cfaa4e391171">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.8
+- Add: the YAML backup view is now a writable editor - edit and click "Validate &amp; Apply YAML" to save. Both a YAML syntax parser and structural validation run server-side before anything is written; invalid input is rejected with a specific error and never touches the saved config.
+- Change: "View as YAML" is now a toggle (View/Hide), and the download filename is unraid-disk-event-trigger.yaml.
+
 ###2026.08.02.7
 - Fix: plugin description didn't show up on Settings &gt; Plugins. Unraid's native Plugins page (ShowPlugins.php) reads README.md directly off disk from the installed plugin directory - a previous release wrongly excluded it from the package. Now included again.
 
