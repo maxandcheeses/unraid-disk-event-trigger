@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.14">
+<!ENTITY version   "2026.08.03.15">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "a85e01a49a0848fd0e228b8b576bf2b1">
+<!ENTITY srcMD5     "61ac27106903e229f22b9809efce76c9">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.15
+- Fix: parity check/rebuild direction labels said "Fire when it starts"/"Fire when it ends", implying the poller only catches the exact transition moment. It's actually level-triggered - an ON rule fires whenever a poll cycle sees the operation active, so it correctly fires even if the operation was already running before the poller noticed (or before/after a plugin restart). Relabeled to "Turn ON while active"/"Turn OFF while inactive".
+
 ###2026.08.03.14
 - Change: added a divider between the threshold/delay fields and "Force resend", separating it visually from the trigger condition above.
 
