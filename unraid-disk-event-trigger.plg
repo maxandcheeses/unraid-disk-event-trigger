@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.18">
+<!ENTITY version   "2026.08.03.19">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "2549d65ac3698eaf0b20c94b07b81eae">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.19
+- **CONFIG CHANGE**: rules now support multiple conditions per rule, ANDed together (a "+ Add Condition" button in the rule editor) - e.g. "disk temp &#8804; 35C" AND "no parity check/rebuild active", so a temperature-driven fan-off rule doesn't fight a separate "keep the fan on during parity check" rule over the same relay. The old single trigger/disks/aggregate/threshold fields are now the rule's first (and by default only) condition; existing rules load and keep working unchanged, just now editable as a one-condition group. The rule-level "Direction" field is renamed "Action" (Turn ON/Turn OFF) - what fires once every condition is simultaneously true.
+
 ###2026.08.03.18
 - Add: **Test** button on each global Connection (MQTT/Tasmota HTTP) to verify reachability/auth without needing a rule. Webhook connections have no fixed endpoint of their own, so their Test button is disabled - test those from a rule instead.
 - Remove: the per-rule "Test MQTT Connection" button, now redundant with testing the connection directly under Global Settings (a rule with a "Custom" MQTT connection can still use its own "Check Device State" button).

@@ -118,14 +118,34 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 
 <script>
 const HTT_DISKS = <?= json_encode(array_values($disks)) ?>;
-let httRules = <?= json_encode($config['rules']) ?>;
+let httRules = <?= json_encode($config['rules']) ?>.map(httNormalizeRule);
 let httConnections = <?= json_encode($config['connections'] ?? []) ?>;
 let httLastState = {}; // ruleId -> {fired, last_value, ...}, cached across re-renders so folding doesn't blank the badge
 const HTT_CSRF = '<?= htmlspecialchars($var['csrf_token'] ?? '', ENT_QUOTES) ?>';
 
+/**
+ * Rules saved before multi-condition support stored a single condition
+ * inline (trigger_type/disks/aggregate/direction/threshold) which doubled
+ * as the action polarity too. Wrap those into the current conditions[] +
+ * action_direction shape so the rest of the UI only deals with one shape.
+ */
+function httNormalizeRule(rule) {
+    if (!rule.conditions || !rule.conditions.length) {
+        rule.conditions = [{
+            trigger_type: rule.trigger_type || 'temp',
+            disks: rule.disks || ['all'],
+            aggregate: rule.aggregate || 'max',
+            direction: rule.direction || 'on',
+            threshold: rule.threshold ?? 40,
+        }];
+    }
+    if (!rule.action_direction) rule.action_direction = rule.direction || 'on';
+    return rule;
+}
+
 function httBadgeHtml(rule) {
     const s = httLastState[rule.id];
-    const dir = rule.direction === 'off' ? 'off' : 'on';
+    const dir = rule.action_direction === 'off' ? 'off' : 'on';
     const fired = !!(s && s.fired);
     const cls = fired ? dir : '';
     const text = fired ? `Fired: ${dir.toUpperCase()}` : 'Idle';
@@ -172,6 +192,80 @@ function httDiskCheckboxes(selected) {
         html += `<label><input type="checkbox" class="htt-disk-one" value="${d.name}" ${checked} ${disabled}> ${d.name} (${d.device})</label><br>`;
     });
     return html;
+}
+
+function httConditionBlock(cond, ruleIndex, condIndex, totalConditions) {
+    const triggerType = cond.trigger_type || 'temp';
+    const isMetric = triggerType === 'temp' || triggerType === 'usage';
+    const unit = triggerType === 'usage' ? '%' : '°C';
+    const dirLabels = httDirectionLabels(triggerType);
+    const direction = cond.direction === 'off' ? 'off' : 'on';
+    return `
+        <div class="htt-cond-block" style="border:1px solid #555;border-radius:4px;padding:8px;margin-bottom:6px">
+            <div class="row" style="margin-bottom:6px">
+                <select class="htt-cond-trigger-type" onchange="httToggleCondTriggerType(this)">
+                    <option value="temp" ${triggerType==='temp'?'selected':''}>Disk temperature</option>
+                    <option value="usage" ${triggerType==='usage'?'selected':''}>Disk usage %</option>
+                    <option value="parity_check" ${triggerType==='parity_check'?'selected':''}>Parity check</option>
+                    <option value="rebuild" ${triggerType==='rebuild'?'selected':''}>Array/data rebuild</option>
+                </select>
+                ${totalConditions > 1 ? `<button type="button" onclick="httRemoveCondition(${ruleIndex},${condIndex})" style="margin-left:8px">Remove condition</button>` : ''}
+            </div>
+            <div class="row htt-cond-disks-row" style="display:${isMetric?'':'none'}">
+                <label>Disks</label>
+                <div class="disk-list">${httDiskCheckboxes(cond.disks)}</div>
+            </div>
+            <div class="row htt-cond-aggregate-row" style="display:${isMetric?'':'none'}">
+                <label>Aggregate</label>
+                <select class="htt-cond-aggregate">
+                    <option value="max" ${cond.aggregate==='max'?'selected':''}>Max (${triggerType==='usage'?'fullest':'hottest'} disk)</option>
+                    <option value="avg" ${cond.aggregate==='avg'?'selected':''}>Average</option>
+                    <option value="min" ${cond.aggregate==='min'?'selected':''}>Min (${triggerType==='usage'?'emptiest':'coolest'} disk)</option>
+                </select>
+            </div>
+            <div class="row">
+                <label>Condition</label>
+                <select class="htt-cond-direction">
+                    <option value="on" ${direction==='off'?'':'selected'}>${dirLabels.on}</option>
+                    <option value="off" ${direction==='off'?'selected':''}>${dirLabels.off}</option>
+                </select>
+            </div>
+            <div class="row htt-cond-threshold-row" style="display:${isMetric?'':'none'}">
+                <label>Threshold</label>
+                <input type="number" class="htt-cond-threshold" value="${cond.threshold ?? 40}"> <span class="htt-cond-threshold-unit">${unit}</span>
+            </div>
+        </div>
+    `;
+}
+
+function httToggleCondTriggerType(sel) {
+    const block = sel.closest('.htt-cond-block');
+    const type = sel.value;
+    const isMetric = type === 'temp' || type === 'usage';
+    const isUsage = type === 'usage';
+    block.querySelector('.htt-cond-disks-row').style.display = isMetric ? '' : 'none';
+    block.querySelector('.htt-cond-aggregate-row').style.display = isMetric ? '' : 'none';
+    block.querySelector('.htt-cond-threshold-row').style.display = isMetric ? '' : 'none';
+    block.querySelector('.htt-cond-threshold-unit').textContent = isUsage ? '%' : '°C';
+    const aggSel = block.querySelector('.htt-cond-aggregate');
+    aggSel.querySelector('option[value="max"]').textContent = `Max (${isUsage ? 'fullest' : 'hottest'} disk)`;
+    aggSel.querySelector('option[value="min"]').textContent = `Min (${isUsage ? 'emptiest' : 'coolest'} disk)`;
+    const dirLabels = httDirectionLabels(type);
+    const dirSel = block.querySelector('.htt-cond-direction');
+    dirSel.querySelector('option[value="on"]').textContent = dirLabels.on;
+    dirSel.querySelector('option[value="off"]').textContent = dirLabels.off;
+}
+
+function httAddCondition(ruleIndex) {
+    httCollectRules();
+    httRules[ruleIndex].conditions.push({ trigger_type: 'temp', disks: ['all'], aggregate: 'max', direction: 'on', threshold: 40 });
+    httRenderRules();
+}
+
+function httRemoveCondition(ruleIndex, condIndex) {
+    httCollectRules();
+    httRules[ruleIndex].conditions.splice(condIndex, 1);
+    httRenderRules();
 }
 
 function httConnectionOptions(type, selectedId) {
@@ -332,11 +426,7 @@ function httRenderRules() {
         const key = rule.id || ('idx' + i);
         const collapsed = key in httCollapsedOverride ? httCollapsedOverride[key] : (httRules.length > 1);
 
-        const triggerType = rule.trigger_type || 'temp';
-        const isMetric = triggerType === 'temp' || triggerType === 'usage';
-        const unit = triggerType === 'usage' ? '%' : '°C';
-        const dirLabels = httDirectionLabels(triggerType);
-        const direction = rule.direction === 'off' ? 'off' : 'on';
+        const direction = rule.action_direction === 'off' ? 'off' : 'on';
 
         const box = document.createElement('div');
         box.className = 'rule-box' + (collapsed ? ' collapsed' : '');
@@ -356,46 +446,26 @@ function httRenderRules() {
                 </span>
             </h4>
             <div class="rule-body">
+            <div class="row" style="opacity:0.75">Conditions <span class="htt-help" title="This rule only fires once ALL of the conditions below are true at the same time (AND) - e.g. 'disk temp &#8804; 35C' AND 'no parity check/rebuild active', so a temperature-driven fan-off doesn't fight a separate 'keep the fan on during parity check' rule over the same relay.">&#9432;</span></div>
+            <div class="htt-conditions">${rule.conditions.map((cond, ci) => httConditionBlock(cond, i, ci, rule.conditions.length)).join('')}</div>
+            <div class="row"><button type="button" onclick="httAddCondition(${i})">+ Add Condition (AND)</button></div>
+            <hr style="border:none;border-top:1px solid #666;margin:12px 0">
             <div class="row">
-                <label>Trigger on</label>
-                <select class="htt-trigger-type" onchange="httToggleTriggerType(this)">
-                    <option value="temp" ${triggerType==='temp'?'selected':''}>Disk temperature</option>
-                    <option value="usage" ${triggerType==='usage'?'selected':''}>Disk usage %</option>
-                    <option value="parity_check" ${triggerType==='parity_check'?'selected':''}>Parity check</option>
-                    <option value="rebuild" ${triggerType==='rebuild'?'selected':''}>Array/data rebuild</option>
+                <label>Action</label>
+                <select class="htt-action-direction">
+                    <option value="on" ${direction==='off'?'':'selected'}>Turn ON</option>
+                    <option value="off" ${direction==='off'?'selected':''}>Turn OFF</option>
                 </select>
-            </div>
-            <div class="row htt-disks-row" style="display:${isMetric?'':'none'}">
-                <label>Disks</label>
-                <div class="disk-list">${httDiskCheckboxes(rule.disks)}</div>
-            </div>
-            <div class="row htt-aggregate-row" style="display:${isMetric?'':'none'}">
-                <label>Aggregate</label>
-                <select class="htt-aggregate">
-                    <option value="max" ${rule.aggregate==='max'?'selected':''}>Max (${triggerType==='usage'?'fullest':'hottest'} disk)</option>
-                    <option value="avg" ${rule.aggregate==='avg'?'selected':''}>Average</option>
-                    <option value="min" ${rule.aggregate==='min'?'selected':''}>Min (${triggerType==='usage'?'emptiest':'coolest'} disk)</option>
-                </select>
-            </div>
-            <div class="row">
-                <label>Direction</label>
-                <select class="htt-direction">
-                    <option value="on" ${direction==='off'?'':'selected'}>${dirLabels.on}</option>
-                    <option value="off" ${direction==='off'?'selected':''}>${dirLabels.off}</option>
-                </select>
-            </div>
-            <div class="row htt-threshold-row" style="display:${isMetric?'':'none'}">
-                <label>Threshold</label>
-                <input type="number" class="htt-threshold" value="${rule.threshold ?? 40}"> <span class="htt-threshold-unit">${unit}</span>
+                <span class="htt-help" title="What the protocol action below does once all conditions above are simultaneously true.">&#9432;</span>
             </div>
             <div class="row">
                 <label>Delay</label>
-                <input type="number" class="htt-delay" min="0" style="width:70px" value="${rule.delay_seconds ?? 0}"> sec <span class="htt-help" title="Only fire once the condition has held continuously for this many seconds. If it reverts before the delay elapses, the action is never sent. 0 = fire immediately.">&#9432;</span>
+                <input type="number" class="htt-delay" min="0" style="width:70px" value="${rule.delay_seconds ?? 0}"> sec <span class="htt-help" title="Only fire once the conditions have held continuously (all at once) for this many seconds. If they revert before the delay elapses, the action is never sent. 0 = fire immediately.">&#9432;</span>
             </div>
             <hr style="border:none;border-top:1px solid #666;margin:12px 0">
             <div class="row">
                 <label>Force resend</label>
-                <label style="min-width:auto"><input type="checkbox" class="htt-force-resend" ${rule.force_resend?'checked':''}> re-send this action every poll cycle while the condition holds, even after it's already fired</label>
+                <label style="min-width:auto"><input type="checkbox" class="htt-force-resend" ${rule.force_resend?'checked':''}> re-send this action every poll cycle while the conditions hold, even after it's already fired</label>
             </div>
             <div class="row">
                 <label>Protocol</label>
@@ -487,24 +557,6 @@ function httToggleProto(sel) {
     box.querySelector('.htt-webhook-block').classList.toggle('active', sel.value === 'webhook');
 }
 
-function httToggleTriggerType(sel) {
-    const box = sel.closest('.rule-box');
-    const type = sel.value;
-    const isMetric = type === 'temp' || type === 'usage';
-    const isUsage = type === 'usage';
-    box.querySelector('.htt-disks-row').style.display = isMetric ? '' : 'none';
-    box.querySelector('.htt-aggregate-row').style.display = isMetric ? '' : 'none';
-    box.querySelector('.htt-threshold-row').style.display = isMetric ? '' : 'none';
-    box.querySelector('.htt-threshold-unit').textContent = isUsage ? '%' : '°C';
-    const aggSel = box.querySelector('.htt-aggregate');
-    aggSel.querySelector('option[value="max"]').textContent = `Max (${isUsage ? 'fullest' : 'hottest'} disk)`;
-    aggSel.querySelector('option[value="min"]').textContent = `Min (${isUsage ? 'emptiest' : 'coolest'} disk)`;
-    const dirLabels = httDirectionLabels(type);
-    const dirSel = box.querySelector('.htt-direction');
-    dirSel.querySelector('option[value="on"]').textContent = dirLabels.on;
-    dirSel.querySelector('option[value="off"]').textContent = dirLabels.off;
-}
-
 function httToggleCollapse(i) {
     httCollectRules(); // otherwise re-rendering every box would discard unsaved edits in any other rule
     const rule = httRules[i];
@@ -522,7 +574,7 @@ function httSaveRules() {
 
 function httAddRule() {
     httCollectRules(); // otherwise re-rendering every box would discard unsaved edits in any other rule
-    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], trigger_type: 'temp', aggregate: 'max', direction: 'on', threshold: 40, delay_seconds: 0, force_resend: false, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
+    const newRule = { id: httUid(), name: 'New Rule', enabled: true, conditions: [{ trigger_type: 'temp', disks: ['all'], aggregate: 'max', direction: 'on', threshold: 40 }], action_direction: 'on', delay_seconds: 0, force_resend: false, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
     httRenderRules();
@@ -563,18 +615,24 @@ function httCollectRules() {
     boxes.forEach(box => {
         const i = parseInt(box.dataset.index);
         const orig = httRules[i] || {};
-        const diskChecks = box.querySelectorAll('.htt-disk-one:checked');
-        const allChecked = box.querySelector('.htt-disk-all').checked;
-        const disks = allChecked ? ['all'] : Array.from(diskChecks).map(c => c.value);
+        const conditions = Array.from(box.querySelectorAll('.htt-cond-block')).map(cb => {
+            const diskChecks = cb.querySelectorAll('.htt-disk-one:checked');
+            const allChecked = cb.querySelector('.htt-disk-all').checked;
+            const disks = allChecked ? ['all'] : Array.from(diskChecks).map(c => c.value);
+            return {
+                trigger_type: cb.querySelector('.htt-cond-trigger-type').value,
+                disks: disks,
+                aggregate: cb.querySelector('.htt-cond-aggregate').value,
+                direction: cb.querySelector('.htt-cond-direction').value,
+                threshold: parseFloat(cb.querySelector('.htt-cond-threshold').value),
+            };
+        });
         rules.push({
             id: orig.id || httUid(),
             name: box.querySelector('.htt-name').value || 'Rule',
             enabled: box.querySelector('.htt-enabled').checked,
-            disks: disks,
-            trigger_type: box.querySelector('.htt-trigger-type').value,
-            aggregate: box.querySelector('.htt-aggregate').value,
-            direction: box.querySelector('.htt-direction').value,
-            threshold: parseFloat(box.querySelector('.htt-threshold').value),
+            conditions: conditions,
+            action_direction: box.querySelector('.htt-action-direction').value,
             delay_seconds: parseFloat(box.querySelector('.htt-delay').value) || 0,
             force_resend: box.querySelector('.htt-force-resend').checked,
             protocol: box.querySelector('.htt-protocol').value,
@@ -692,7 +750,7 @@ function httApplyYaml() {
                 setTimeout(() => msg.textContent = '', 3000);
                 // Refresh the rule editor / global settings from the newly saved config.
                 fetch(HTT_ENDPOINT + '?action=get_config', { credentials: 'same-origin' }).then(r => r.json()).then(config => {
-                    httRules = config.rules || [];
+                    httRules = (config.rules || []).map(httNormalizeRule);
                     httConnections = config.connections || [];
                     document.getElementById('htt-poll-interval').value = config.poll_interval ?? 60;
                     const pluginEnabled = document.getElementById('htt-plugin-enabled');

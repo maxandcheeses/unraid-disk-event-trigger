@@ -105,20 +105,31 @@ function htt_validate_config($config) {
     foreach (($config['rules'] ?? []) as $idx => $rule) {
         $label = "rule #" . ($idx + 1) . (is_array($rule) && !empty($rule['name']) ? " ('{$rule['name']}')" : '');
         if (!is_array($rule)) { $errors[] = "$label must be a mapping"; continue; }
-        if (isset($rule['trigger_type']) && !in_array($rule['trigger_type'], ['temp', 'usage', 'parity_check', 'rebuild'], true)) {
-            $errors[] = "$label: trigger_type must be 'temp', 'usage', 'parity_check', or 'rebuild'";
+        if (isset($rule['action_direction']) && !in_array($rule['action_direction'], ['on', 'off'], true)) {
+            $errors[] = "$label: action_direction must be 'on' or 'off'";
         }
-        if (isset($rule['direction']) && !in_array($rule['direction'], ['on', 'off'], true)) {
-            $errors[] = "$label: direction must be 'on' or 'off'";
+        if (isset($rule['conditions']) && !is_array($rule['conditions'])) {
+            $errors[] = "$label: conditions must be a list";
+        } else {
+            foreach (($rule['conditions'] ?? []) as $cidx => $cond) {
+                $clabel = "$label, condition #" . ($cidx + 1);
+                if (!is_array($cond)) { $errors[] = "$clabel must be a mapping"; continue; }
+                if (isset($cond['trigger_type']) && !in_array($cond['trigger_type'], ['temp', 'usage', 'parity_check', 'rebuild'], true)) {
+                    $errors[] = "$clabel: trigger_type must be 'temp', 'usage', 'parity_check', or 'rebuild'";
+                }
+                if (isset($cond['direction']) && !in_array($cond['direction'], ['on', 'off'], true)) {
+                    $errors[] = "$clabel: direction must be 'on' or 'off'";
+                }
+                if (isset($cond['threshold']) && !is_numeric($cond['threshold'])) $errors[] = "$clabel: threshold must be a number";
+                if (isset($cond['disks']) && !is_array($cond['disks'])) $errors[] = "$clabel: disks must be a list";
+                if (isset($cond['aggregate']) && !in_array($cond['aggregate'], ['max', 'avg', 'min'], true)) {
+                    $errors[] = "$clabel: aggregate must be 'max', 'avg', or 'min'";
+                }
+            }
         }
-        if (isset($rule['threshold']) && !is_numeric($rule['threshold'])) $errors[] = "$label: threshold must be a number";
         if (isset($rule['delay_seconds']) && (!is_numeric($rule['delay_seconds']) || $rule['delay_seconds'] < 0)) $errors[] = "$label: delay_seconds must be a non-negative number";
         if (isset($rule['protocol']) && !in_array($rule['protocol'], ['http', 'mqtt', 'webhook'], true)) {
             $errors[] = "$label: protocol must be 'http', 'mqtt', or 'webhook'";
-        }
-        if (isset($rule['disks']) && !is_array($rule['disks'])) $errors[] = "$label: disks must be a list";
-        if (isset($rule['aggregate']) && !in_array($rule['aggregate'], ['max', 'avg', 'min'], true)) {
-            $errors[] = "$label: aggregate must be 'max', 'avg', or 'min'";
         }
         if (isset($rule['http']) && !is_array($rule['http'])) $errors[] = "$label: http must be a mapping";
         if (isset($rule['mqtt']) && !is_array($rule['mqtt'])) $errors[] = "$label: mqtt must be a mapping";
@@ -872,7 +883,7 @@ function htt_query_webhook_state($config, $rule) {
  * to separately decide which way to fire.
  */
 function htt_send_command($config, $rule) {
-    $on = (($rule['direction'] ?? 'on') !== 'off');
+    $on = (($rule['action_direction'] ?? 'on') !== 'off');
     $protocol = $rule['protocol'] ?? 'http';
     if ($protocol === 'mqtt') return htt_send_mqtt($config, $rule, $on);
     if ($protocol === 'webhook') return htt_send_webhook($config, $rule, $on);
@@ -908,15 +919,64 @@ function htt_array_status() {
 }
 
 /**
- * Evaluate all enabled rules and fire each one's single action once its
- * single condition is met. Each rule is single-direction (on or off) with
- * its own threshold/delay - hysteresis is achieved by configuring a pair
- * of rules (e.g. an "on" rule at 40C and an "off" rule at 35C) rather than
- * one rule internally tracking both thresholds. Rules are evaluated in the
- * order they appear in config['rules'] (the order set in the webGUI via the
- * Move Up/Down buttons), so a rule that depends on another's side effect
- * (e.g. two rules targeting the same relay) fires predictably in sequence.
+ * Normalize a rule's condition(s) to the current list shape. Older saved
+ * rules stored exactly one condition inline (trigger_type/disks/aggregate/
+ * direction/threshold at the rule's top level, doubling as both the
+ * condition and the action polarity) - wrap those into a one-element
+ * conditions list on read so evaluation only has one shape to deal with.
  */
+function htt_rule_conditions($rule) {
+    if (isset($rule['conditions']) && is_array($rule['conditions']) && !empty($rule['conditions'])) {
+        return $rule['conditions'];
+    }
+    return [[
+        'trigger_type' => $rule['trigger_type'] ?? 'temp',
+        'disks' => $rule['disks'] ?? ['all'],
+        'aggregate' => $rule['aggregate'] ?? 'max',
+        'direction' => $rule['direction'] ?? 'on',
+        'threshold' => $rule['threshold'] ?? 0,
+    ]];
+}
+
+function htt_rule_action_direction($rule) {
+    if (isset($rule['action_direction'])) return $rule['action_direction'] === 'off' ? 'off' : 'on';
+    return ($rule['direction'] ?? 'on') === 'off' ? 'off' : 'on';
+}
+
+/**
+ * Evaluate a single condition (one entry from a rule's conditions list)
+ * against current disk/array state. Returns
+ * ['met'=>bool|null (null = data unavailable), 'reason'=>string].
+ */
+function htt_eval_condition($cond, $disks, $array) {
+    $triggerType = $cond['trigger_type'] ?? 'temp';
+    $direction = ($cond['direction'] ?? 'on') === 'off' ? 'off' : 'on';
+
+    if ($triggerType === 'parity_check' || $triggerType === 'rebuild') {
+        $what = $triggerType === 'parity_check' ? 'parity check' : 'array/data rebuild';
+        $active = $array['active'] && ($triggerType === 'parity_check' ? $array['is_parity_check'] : $array['is_rebuild']);
+        $met = $direction === 'on' ? $active : !$active;
+        return ['met' => $met, 'reason' => "$what " . ($active ? 'active' : 'inactive')];
+    }
+
+    $metricFn = $triggerType === 'usage' ? 'htt_disk_usage_pct' : 'htt_disk_temp';
+    $selected = $cond['disks'] ?? ['all'];
+    $values = [];
+    if (in_array('all', $selected)) {
+        foreach ($disks as $d) $values[] = $metricFn($d);
+    } else {
+        foreach ($selected as $name) {
+            if (isset($disks[$name])) $values[] = $metricFn($disks[$name]);
+        }
+    }
+    $agg = htt_aggregate($values, $cond['aggregate'] ?? 'max');
+    if ($agg === null) return ['met' => null, 'reason' => ''];
+    $threshold = floatval($cond['threshold'] ?? 0);
+    $met = $direction === 'on' ? $agg >= $threshold : $agg <= $threshold;
+    $reason = ($triggerType === 'usage' ? "usage={$agg}%" : "temp={$agg}C");
+    return ['met' => $met, 'reason' => $reason];
+}
+
 function htt_run_cycle() {
     $config = htt_load_config();
     if (!($config['enabled'] ?? true)) return; // plugin disabled at the top level - skip the whole cycle
@@ -928,46 +988,33 @@ function htt_run_cycle() {
     foreach ($config['rules'] as $rule) {
         if (empty($rule['enabled'])) continue;
         $id = $rule['id'];
-        $triggerType = $rule['trigger_type'] ?? 'temp';
-        $direction = ($rule['direction'] ?? 'on') === 'off' ? 'off' : 'on';
+        $direction = htt_rule_action_direction($rule);
         $prevFired = !empty($state[$id]['fired']);
 
-        $conditionMet = null;
-        $reason = '';
+        // A rule fires only once ALL of its conditions hold at the same
+        // time (AND) - e.g. "disk temp <= 35C" AND "no parity check/rebuild
+        // active", so a cooling-triggered fan-off doesn't fight a separate
+        // "keep the fan on during parity check" rule over the same relay.
+        $conditionMet = true;
+        $reasons = [];
         $unavailable = false;
-
-        if ($triggerType === 'parity_check' || $triggerType === 'rebuild') {
-            $what = $triggerType === 'parity_check' ? 'parity check' : 'array/data rebuild';
-            $active = $array['active'] && ($triggerType === 'parity_check' ? $array['is_parity_check'] : $array['is_rebuild']);
-            $conditionMet = $direction === 'on' ? $active : !$active;
-            $reason = "$what " . ($active ? 'active' : 'inactive');
-        } else {
-            $metricFn = $triggerType === 'usage' ? 'htt_disk_usage_pct' : 'htt_disk_temp';
-            $selected = $rule['disks'] ?? ['all'];
-            $values = [];
-            if (in_array('all', $selected)) {
-                foreach ($disks as $d) $values[] = $metricFn($d);
-            } else {
-                foreach ($selected as $name) {
-                    if (isset($disks[$name])) $values[] = $metricFn($disks[$name]);
-                }
+        $lastValue = null;
+        foreach (htt_rule_conditions($rule) as $cond) {
+            $result = htt_eval_condition($cond, $disks, $array);
+            if ($result['met'] === null) { $unavailable = true; break; }
+            if (($cond['trigger_type'] ?? 'temp') !== 'parity_check' && ($cond['trigger_type'] ?? 'temp') !== 'rebuild') {
+                $lastValue = $result['reason']; // last metric reading, for the webGUI badge/debug
             }
-            $agg = htt_aggregate($values, $rule['aggregate'] ?? 'max');
-            $state[$id]['last_value'] = $agg;
-            if ($agg === null) {
-                $unavailable = true;
-            } else {
-                $threshold = floatval($rule['threshold'] ?? 0);
-                $conditionMet = $direction === 'on' ? $agg >= $threshold : $agg <= $threshold;
-                $reason = ($triggerType === 'usage' ? "usage={$agg}%" : "temp={$agg}C");
-            }
+            $conditionMet = $conditionMet && $result['met'];
+            $reasons[] = $result['reason'];
         }
+        $reason = implode(' AND ', $reasons);
+        if ($lastValue !== null) $state[$id]['last_value'] = $lastValue;
 
         $state[$id]['last_check'] = time();
 
         if ($unavailable) {
-            $what = $triggerType === 'usage' ? 'disk usage' : 'disk temps';
-            htt_log("Rule '{$rule['name']}': no readable $what (all spun down, or usage data unavailable?), skipping");
+            htt_log("Rule '{$rule['name']}': a condition's data is unavailable (all spun down, or usage data unavailable?), skipping");
             continue;
         }
 

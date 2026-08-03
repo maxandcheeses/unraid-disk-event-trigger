@@ -141,7 +141,7 @@ switch ($action) {
             // the device's actual reported state matches this rule's direction.
             if (!empty($result['state']) && !empty($rule['id'])) {
                 $state = htt_load_state();
-                $state[$rule['id']]['fired'] = ($result['state'] === ($rule['direction'] ?? 'on'));
+                $state[$rule['id']]['fired'] = ($result['state'] === htt_rule_action_direction($rule));
                 htt_save_state($state);
             }
         } else {
