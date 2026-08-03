@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.24">
+<!ENTITY version   "2026.08.03.25">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "ac00749f85a26dcb8178a5e2d5989218">
@@ -11,6 +11,10 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.25
+- Add: individual conditions within a rule can now be folded/unfolded (like rules and connections already could), showing a one-line summary (e.g. "Disk temp &#8805; 40&#176;C") when collapsed - useful once a rule has several conditions.
+- Change: **Test** and **Check Device State** on a rule now show their result inline in the rule editor instead of a popup alert, matching how Test Conditions and the global Connections' Test button already behave - the whole settings page now reports test/status results the same way everywhere.
+
 ###2026.08.03.24
 - Fix: **Test Conditions** (and Save &amp; Apply's confirmation message) silently did nothing when a global Connection happened to share the same position/index as the rule being tested - both rules and connections use the same `.rule-box[data-index]` markup, so the unscoped lookup could grab a Connection's box instead of the Rule's and find no results panel to write into. Scoped both lookups to `#htt-rules` so they always find the right box.
 

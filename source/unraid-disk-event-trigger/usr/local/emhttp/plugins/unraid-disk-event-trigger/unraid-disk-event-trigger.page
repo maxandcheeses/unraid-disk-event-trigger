@@ -200,26 +200,53 @@ function httDiskCheckboxes(selected) {
     return html;
 }
 
-function httConditionBlock(cond, ruleIndex, condIndex, totalConditions) {
+/** ruleId:condIndex -> bool, only set once the user explicitly toggles a condition */
+let httCondCollapsedOverride = {};
+
+function httCondSummary(cond) {
+    const triggerType = cond.trigger_type || 'temp';
+    const direction = cond.direction === 'off' ? 'off' : 'on';
+    if (triggerType === 'parity_check' || triggerType === 'rebuild') {
+        const label = triggerType === 'parity_check' ? 'Parity check' : 'Array/data rebuild';
+        return `${label} ${direction === 'off' ? 'inactive' : 'active'}`;
+    }
+    const label = triggerType === 'usage' ? 'Disk usage' : 'Disk temp';
+    const unit = triggerType === 'usage' ? '%' : '°C';
+    const cmp = direction === 'off' ? '&#8804;' : '&#8805;';
+    return `${label} ${cmp} ${cond.threshold ?? 40}${unit}`;
+}
+
+function httConditionBlock(cond, ruleIndex, condIndex, totalConditions, ruleId) {
     const triggerType = cond.trigger_type || 'temp';
     const isMetric = triggerType === 'temp' || triggerType === 'usage';
     const unit = triggerType === 'usage' ? '%' : '°C';
     const dirLabels = httDirectionLabels(triggerType);
     const direction = cond.direction === 'off' ? 'off' : 'on';
     const join = cond.join === 'or' ? 'or' : 'and';
+    const key = (ruleId || 'idx' + ruleIndex) + ':' + condIndex;
+    const collapsed = key in httCondCollapsedOverride ? httCondCollapsedOverride[key] : (totalConditions > 1);
     return `
         <div class="htt-cond-block" style="border:1px solid #555;border-radius:4px;padding:8px;margin-bottom:6px">
             ${condIndex > 0 ? `<div class="row" style="margin-bottom:6px"><select class="htt-cond-join"><option value="and" ${join==='or'?'':'selected'}>AND</option><option value="or" ${join==='or'?'selected':''}>OR</option></select> <span style="opacity:0.75">this condition with the running result above</span></div>` : ''}
             <div class="row" style="margin-bottom:6px">
+                <span class="htt-rule-toggle" onclick="httToggleCondCollapse('${ruleId||''}',${ruleIndex},${condIndex})">${collapsed ? '&#9656;' : '&#9662;'}</span>
+                ${collapsed ? `<span style="opacity:0.85">${httCondSummary(cond)}</span>` : `
                 <select class="htt-cond-trigger-type" onchange="httToggleCondTriggerType(this)">
                     <option value="temp" ${triggerType==='temp'?'selected':''}>Disk temperature</option>
                     <option value="usage" ${triggerType==='usage'?'selected':''}>Disk usage %</option>
                     <option value="parity_check" ${triggerType==='parity_check'?'selected':''}>Parity check</option>
                     <option value="rebuild" ${triggerType==='rebuild'?'selected':''}>Array/data rebuild</option>
-                </select>
+                </select>`}
                 <button type="button" onclick="httDuplicateCondition(${ruleIndex},${condIndex})" style="margin-left:8px">Duplicate condition</button>
                 ${totalConditions > 1 ? `<button type="button" onclick="httRemoveCondition(${ruleIndex},${condIndex})" style="margin-left:8px">Remove condition</button>` : ''}
             </div>
+            <div class="htt-cond-body" style="display:${collapsed?'none':''}">
+            ${collapsed ? `<select class="htt-cond-trigger-type" style="display:none">
+                    <option value="temp" ${triggerType==='temp'?'selected':''}>Disk temperature</option>
+                    <option value="usage" ${triggerType==='usage'?'selected':''}>Disk usage %</option>
+                    <option value="parity_check" ${triggerType==='parity_check'?'selected':''}>Parity check</option>
+                    <option value="rebuild" ${triggerType==='rebuild'?'selected':''}>Array/data rebuild</option>
+                </select>` : ''}
             <div class="row htt-cond-disks-row" style="display:${isMetric?'':'none'}">
                 <label>Disks</label>
                 <div class="disk-list">${httDiskCheckboxes(cond.disks)}</div>
@@ -243,8 +270,18 @@ function httConditionBlock(cond, ruleIndex, condIndex, totalConditions) {
                 <label>Threshold</label>
                 <input type="number" class="htt-cond-threshold" value="${cond.threshold ?? 40}"> <span class="htt-cond-threshold-unit">${unit}</span>
             </div>
+            </div>
         </div>
     `;
+}
+
+function httToggleCondCollapse(ruleId, ruleIndex, condIndex) {
+    httCollectRules(); // otherwise re-rendering would discard unsaved edits elsewhere
+    const key = (ruleId || 'idx' + ruleIndex) + ':' + condIndex;
+    const totalConditions = (httRules[ruleIndex]?.conditions || []).length;
+    const currentlyCollapsed = key in httCondCollapsedOverride ? httCondCollapsedOverride[key] : (totalConditions > 1);
+    httCondCollapsedOverride[key] = !currentlyCollapsed;
+    httRenderRules();
 }
 
 function httToggleCondTriggerType(sel) {
@@ -483,9 +520,10 @@ function httRenderRules() {
                     <button type="button" onclick="httRemoveRule(${i})">Remove</button>
                 </span>
             </h4>
+            <div class="row htt-rule-test-msg" style="opacity:0.85"></div>
             <div class="rule-body">
             <div class="row" style="opacity:0.75">Conditions <span class="htt-help" title="This rule fires once its conditions evaluate true, combined left-to-right with each condition's own AND/OR (no parentheses/precedence) - e.g. 'disk temp &#8804; 35C' AND 'no parity check/rebuild active', so a temperature-driven fan-off doesn't fight a separate 'keep the fan on during parity check' rule over the same relay.">&#9432;</span></div>
-            <div class="htt-conditions">${rule.conditions.map((cond, ci) => httConditionBlock(cond, i, ci, rule.conditions.length)).join('')}</div>
+            <div class="htt-conditions">${rule.conditions.map((cond, ci) => httConditionBlock(cond, i, ci, rule.conditions.length, rule.id)).join('')}</div>
             <div class="row">
                 <button type="button" onclick="httAddCondition(${i})">+ Add Condition</button>
                 <button type="button" onclick="httTestConditions(${i})" title="Evaluates these conditions right now against live disk/array state, without sending any command">Test Conditions</button>
@@ -573,6 +611,7 @@ function httRenderRules() {
                 </div>
                 <div class="row"><button type="button" onclick="httCheckState(${i})">Check Device State</button></div>
             </div>
+            <div class="htt-checkstate-results"></div>
             <hr style="border:none;border-top:1px solid #666;margin:12px 0">
             <div class="row">
                 <button type="button" onclick="httSaveRule(${i})">Save &amp; Apply</button>
@@ -787,8 +826,18 @@ function httSaveRule(i) {
 function httTestRule(i) {
     httCollectRules();
     const rule = httRules[i];
+    const box = document.querySelector(`#htt-rules .rule-box[data-index="${i}"]`);
+    const msgEl = box?.querySelector('.htt-rule-test-msg');
+    if (msgEl) { msgEl.textContent = 'Sending...'; msgEl.style.color = ''; }
     httPost('action=test_command&rule=' + encodeURIComponent(JSON.stringify(rule)))
-        .then(r => r.json()).then(d => alert(d.ok ? 'Command sent successfully' : 'Command failed - check log'));
+        .then(r => r.json()).then(d => {
+            if (!msgEl) return;
+            msgEl.textContent = d.ok ? 'Command sent successfully.' : 'Command failed - check log.';
+            msgEl.style.color = d.ok ? '#2ea043' : '#cf5b5b';
+            setTimeout(() => { msgEl.textContent = ''; msgEl.style.color = ''; }, 5000);
+        }).catch(err => {
+            if (msgEl) { msgEl.textContent = 'Error: ' + err; msgEl.style.color = '#cf5b5b'; }
+        });
 }
 
 function httTestConditions(i) {
@@ -822,12 +871,27 @@ function httTestConditions(i) {
 function httCheckState(i) {
     httCollectRules();
     const rule = httRules[i];
+    const box = document.querySelector(`#htt-rules .rule-box[data-index="${i}"]`);
+    const resultsEl = box?.querySelector('.htt-checkstate-results');
+    if (resultsEl) resultsEl.innerHTML = '<div class="row" style="opacity:0.75">Checking...</div>';
     httPost('action=get_device_state&rule=' + encodeURIComponent(JSON.stringify(rule)))
         .then(r => r.json()).then(d => {
-            if (!d.ok) { alert('Could not read device state: ' + (d.error || 'unknown error')); return; }
+            if (!resultsEl) return;
+            if (!d.ok) {
+                resultsEl.innerHTML = `<div class="row" style="color:#cf5b5b">Could not read device state: ${d.error || 'unknown error'}</div>`;
+                return;
+            }
             const stateStr = d.state ? d.state.toUpperCase() : 'unrecognized';
-            alert('Device reports: ' + stateStr + '\nRaw: ' + d.raw + '\n\n(internal tracked state has been synced to match)');
+            resultsEl.innerHTML = `
+                <div style="border:1px solid #555;border-radius:4px;padding:8px;margin-top:6px">
+                    <div class="row"><b>Device reports:</b> ${stateStr}</div>
+                    <div class="row" style="opacity:0.75;word-break:break-all">Raw: ${String(d.raw).replace(/</g,'&lt;')}</div>
+                    <div class="row" style="opacity:0.75">(internal tracked state has been synced to match, where applicable)</div>
+                </div>
+            `;
             httLoadStatus();
+        }).catch(err => {
+            if (resultsEl) resultsEl.innerHTML = `<div class="row" style="color:#cf5b5b">Error: ${err}</div>`;
         });
 }
 
