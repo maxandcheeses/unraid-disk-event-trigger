@@ -64,6 +64,7 @@ function htt_validate_config($config) {
         if (!is_array($rule)) { $errors[] = "$label must be a mapping"; continue; }
         if (isset($rule['on_temp']) && !is_numeric($rule['on_temp'])) $errors[] = "$label: on_temp must be a number";
         if (isset($rule['off_temp']) && !is_numeric($rule['off_temp'])) $errors[] = "$label: off_temp must be a number";
+        if (isset($rule['delay_seconds']) && (!is_numeric($rule['delay_seconds']) || $rule['delay_seconds'] < 0)) $errors[] = "$label: delay_seconds must be a non-negative number";
         if (isset($rule['protocol']) && !in_array($rule['protocol'], ['http', 'mqtt'], true)) {
             $errors[] = "$label: protocol must be 'http' or 'mqtt'";
         }
@@ -728,18 +729,41 @@ function htt_run_cycle() {
         $state[$id]['last_check'] = time();
         $state[$id]['forced_by_array_op'] = $forceOn;
 
-        // Normally only send on an actual transition. With force_resend, keep
-        // re-asserting the desired state every cycle even if unchanged -
-        // guards against the tracked relay state drifting from the real
-        // device (e.g. someone toggled it manually, or a previous send was
-        // silently dropped by the broker/device).
+        $isTransition = in_array($desiredRelay, ['on', 'off'], true) && $desiredRelay !== $prev;
+        $delaySec = $forceOn ? 0 : floatval($rule['delay_seconds'] ?? 0);
+
+        // A pending transition must keep wanting the same new state across
+        // cycles for the full delay before it's actually sent - if the
+        // condition reverts (or flips to a different desired state) in the
+        // meantime, the delay resets/clears rather than firing stale.
+        if (!$isTransition || $delaySec <= 0) {
+            unset($state[$id]['pending_relay']);
+            unset($state[$id]['pending_since']);
+        } else {
+            if (($state[$id]['pending_relay'] ?? null) !== $desiredRelay) {
+                $state[$id]['pending_relay'] = $desiredRelay;
+                $state[$id]['pending_since'] = time();
+                htt_log("Rule '{$rule['name']}': $reason, {$prev} -> {$desiredRelay} pending (delay {$delaySec}s)");
+            }
+        }
+
+        $delayElapsed = $delaySec <= 0 || (time() - ($state[$id]['pending_since'] ?? time())) >= $delaySec;
+
+        // Normally only send on an actual transition (once any configured
+        // delay has elapsed with the condition still holding). With
+        // force_resend, keep re-asserting the desired state every cycle even
+        // if unchanged - guards against the tracked relay state drifting
+        // from the real device (e.g. someone toggled it manually, or a
+        // previous send was silently dropped by the broker/device).
         $shouldSend = in_array($desiredRelay, ['on', 'off'], true)
-            && ($desiredRelay !== $prev || !empty($rule['force_resend']));
+            && (($desiredRelay !== $prev && $delayElapsed) || (!$isTransition && !empty($rule['force_resend'])));
 
         if ($shouldSend) {
             $ok = htt_send_command($rule, $desiredRelay === 'on');
             if ($ok) {
                 $state[$id]['relay'] = $desiredRelay;
+                unset($state[$id]['pending_relay']);
+                unset($state[$id]['pending_since']);
                 $verb = $desiredRelay !== $prev ? "transitioned {$prev} -> {$desiredRelay}" : "re-asserted {$desiredRelay} (force resend)";
                 htt_log("Rule '{$rule['name']}': $reason, $verb");
             } else {

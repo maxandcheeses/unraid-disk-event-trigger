@@ -191,6 +191,10 @@ function httRenderRules() {
                 <input type="number" class="htt-off-temp" value="${rule.off_temp ?? 35}"> &deg;C
             </div>
             <div class="row">
+                <label>Turn on/off delay</label>
+                <input type="number" class="htt-delay-seconds" min="0" value="${rule.delay_seconds ?? 0}"> seconds - only send the command once the threshold has been continuously crossed for this long
+            </div>
+            <div class="row">
                 <label>Also force ON during</label>
                 <label style="min-width:auto;margin-right:14px"><input type="checkbox" class="htt-force-parity" ${rule.trigger_on_parity_check?'checked':''}> parity check</label>
                 <label style="min-width:auto"><input type="checkbox" class="htt-force-rebuild" ${rule.trigger_on_rebuild?'checked':''}> array/data rebuild</label>
@@ -249,7 +253,7 @@ function httToggleCollapse(i) {
 }
 
 function httAddRule() {
-    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], aggregate: 'max', on_temp: 40, off_temp: 35, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {} };
+    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], aggregate: 'max', on_temp: 40, off_temp: 35, delay_seconds: 0, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
     httRenderRules();
@@ -278,6 +282,7 @@ function httCollectRules() {
             aggregate: box.querySelector('.htt-aggregate').value,
             on_temp: parseFloat(box.querySelector('.htt-on-temp').value),
             off_temp: parseFloat(box.querySelector('.htt-off-temp').value),
+            delay_seconds: parseFloat(box.querySelector('.htt-delay-seconds').value) || 0,
             trigger_on_parity_check: box.querySelector('.htt-force-parity').checked,
             trigger_on_rebuild: box.querySelector('.htt-force-rebuild').checked,
             force_resend: box.querySelector('.htt-force-resend').checked,
