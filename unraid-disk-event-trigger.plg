@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.2">
+<!ENTITY version   "2026.08.03.3">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "f8b7cd52cf7487a2e3d36c709eb0a123">
+<!ENTITY srcMD5     "9ba768c2f2bcaddfc9361a3bf076f368">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.3
+- Fix: icon still missing in two more places. The .plg's `launch` attribute had a bogus nested path with a stray ".page" suffix, and the Settings &gt; Plugins list page reads its icon from a separate `icon="..."` attribute on the &lt;PLUGIN&gt; tag (not the .page file at all) - neither was set correctly. Dropped the earlier (incorrect) Tag/icons/ attempt, which the reference plugin this was checked against doesn't use. Verified this time by directly invoking Unraid's actual icon-resolution code (ShowPlugins.php's logic, and PluginHelpers.php's plugin()/icon()) against the real installed .plg and files, not just reasoning about it.
+
 ###2026.08.03.2
 - Fix: icon still didn't show on the plugin's own page (only the Settings/Utilities tile picked it up). That header icon is driven by a separate "Tag" attribute, resolved from &lt;plugin&gt;/icons/&lt;tag&gt; - now set. Verified server-side by invoking Unraid's actual icon-resolving functions against the deployed files before releasing, rather than assuming.
 
