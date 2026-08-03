@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.19">
+<!ENTITY version   "2026.08.03.20">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "221fa89c66614d4971f4304410bfa9f5">
@@ -11,6 +11,10 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.20
+- Add: each condition after the first in a rule can now be joined with AND or OR (evaluated left-to-right, no parentheses/precedence) instead of always being ANDed - e.g. "temp &#8805; 45C" OR "usage &#8805; 95%" to turn a fan on under either condition.
+- Change: the global Connections section is now foldable per-connection, like rules already were, so a long list of saved connections doesn't force endless scrolling.
+
 ###2026.08.03.19
 - **CONFIG CHANGE**: rules now support multiple conditions per rule, ANDed together (a "+ Add Condition" button in the rule editor) - e.g. "disk temp &#8804; 35C" AND "no parity check/rebuild active", so a temperature-driven fan-off rule doesn't fight a separate "keep the fan on during parity check" rule over the same relay. The old single trigger/disks/aggregate/threshold fields are now the rule's first (and by default only) condition; existing rules load and keep working unchanged, just now editable as a one-condition group. The rule-level "Direction" field is renamed "Action" (Turn ON/Turn OFF) - what fires once every condition is simultaneously true.
 

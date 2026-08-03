@@ -120,6 +120,9 @@ function htt_validate_config($config) {
                 if (isset($cond['direction']) && !in_array($cond['direction'], ['on', 'off'], true)) {
                     $errors[] = "$clabel: direction must be 'on' or 'off'";
                 }
+                if (isset($cond['join']) && !in_array($cond['join'], ['and', 'or'], true)) {
+                    $errors[] = "$clabel: join must be 'and' or 'or'";
+                }
                 if (isset($cond['threshold']) && !is_numeric($cond['threshold'])) $errors[] = "$clabel: threshold must be a number";
                 if (isset($cond['disks']) && !is_array($cond['disks'])) $errors[] = "$clabel: disks must be a list";
                 if (isset($cond['aggregate']) && !in_array($cond['aggregate'], ['max', 'avg', 'min'], true)) {
@@ -991,24 +994,27 @@ function htt_run_cycle() {
         $direction = htt_rule_action_direction($rule);
         $prevFired = !empty($state[$id]['fired']);
 
-        // A rule fires only once ALL of its conditions hold at the same
-        // time (AND) - e.g. "disk temp <= 35C" AND "no parity check/rebuild
-        // active", so a cooling-triggered fan-off doesn't fight a separate
-        // "keep the fan on during parity check" rule over the same relay.
-        $conditionMet = true;
+        // A rule fires once its conditions (evaluated left-to-right, each
+        // joined to the running result by its own AND/OR) come out true -
+        // e.g. "disk temp <= 35C" AND "no parity check/rebuild active", so
+        // a cooling-triggered fan-off doesn't fight a separate "keep the fan
+        // on during parity check" rule over the same relay.
+        $conditionMet = null;
         $reasons = [];
         $unavailable = false;
         $lastValue = null;
-        foreach (htt_rule_conditions($rule) as $cond) {
+        foreach (htt_rule_conditions($rule) as $idx => $cond) {
             $result = htt_eval_condition($cond, $disks, $array);
             if ($result['met'] === null) { $unavailable = true; break; }
             if (($cond['trigger_type'] ?? 'temp') !== 'parity_check' && ($cond['trigger_type'] ?? 'temp') !== 'rebuild') {
                 $lastValue = $result['reason']; // last metric reading, for the webGUI badge/debug
             }
-            $conditionMet = $conditionMet && $result['met'];
-            $reasons[] = $result['reason'];
+            $join = ($cond['join'] ?? 'and') === 'or' ? 'or' : 'and';
+            $reasons[] = ($idx > 0 ? strtoupper($join) . ' ' : '') . $result['reason'];
+            $conditionMet = ($idx === 0) ? $result['met'] : ($join === 'or' ? ($conditionMet || $result['met']) : ($conditionMet && $result['met']));
         }
-        $reason = implode(' AND ', $reasons);
+        if ($conditionMet === null) $conditionMet = true; // no conditions configured - shouldn't happen, but don't block on it
+        $reason = implode(' ', $reasons);
         if ($lastValue !== null) $state[$id]['last_value'] = $lastValue;
 
         $state[$id]['last_check'] = time();

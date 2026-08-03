@@ -200,8 +200,10 @@ function httConditionBlock(cond, ruleIndex, condIndex, totalConditions) {
     const unit = triggerType === 'usage' ? '%' : '°C';
     const dirLabels = httDirectionLabels(triggerType);
     const direction = cond.direction === 'off' ? 'off' : 'on';
+    const join = cond.join === 'or' ? 'or' : 'and';
     return `
         <div class="htt-cond-block" style="border:1px solid #555;border-radius:4px;padding:8px;margin-bottom:6px">
+            ${condIndex > 0 ? `<div class="row" style="margin-bottom:6px"><select class="htt-cond-join"><option value="and" ${join==='or'?'':'selected'}>AND</option><option value="or" ${join==='or'?'selected':''}>OR</option></select> <span style="opacity:0.75">this condition with the running result above</span></div>` : ''}
             <div class="row" style="margin-bottom:6px">
                 <select class="htt-cond-trigger-type" onchange="httToggleCondTriggerType(this)">
                     <option value="temp" ${triggerType==='temp'?'selected':''}>Disk temperature</option>
@@ -258,7 +260,7 @@ function httToggleCondTriggerType(sel) {
 
 function httAddCondition(ruleIndex) {
     httCollectRules();
-    httRules[ruleIndex].conditions.push({ trigger_type: 'temp', disks: ['all'], aggregate: 'max', direction: 'on', threshold: 40 });
+    httRules[ruleIndex].conditions.push({ trigger_type: 'temp', disks: ['all'], aggregate: 'max', direction: 'on', threshold: 40, join: 'and' });
     httRenderRules();
 }
 
@@ -276,16 +278,21 @@ function httConnectionOptions(type, selectedId) {
     return html;
 }
 
+let httConnCollapsedOverride = {}; // connectionId -> bool, only set once the user explicitly toggles a connection
+
 function httRenderConnections() {
     const wrap = document.getElementById('htt-connections');
     wrap.innerHTML = '';
     httConnections.forEach((conn, i) => {
+        const key = conn.id || ('idx' + i);
+        const collapsed = key in httConnCollapsedOverride ? httConnCollapsedOverride[key] : (httConnections.length > 1);
         const box = document.createElement('div');
-        box.className = 'rule-box';
+        box.className = 'rule-box' + (collapsed ? ' collapsed' : '');
         box.dataset.index = i;
         const type = conn.type || 'mqtt';
         box.innerHTML = `
             <h4>
+                <span class="htt-rule-toggle" onclick="httToggleConnCollapse(${i})">${collapsed ? '&#9656;' : '&#9662;'}</span>
                 <input type="text" class="htt-conn-name" value="${(conn.name||'').replace(/"/g,'&quot;')}" placeholder="Connection name" style="width:200px">
                 <select class="htt-conn-type" onchange="httToggleConnType(this)">
                     <option value="http" ${type==='http'?'selected':''}>Tasmota HTTP</option>
@@ -298,6 +305,7 @@ function httRenderConnections() {
                 </span>
                 <span class="htt-conn-test-msg"></span>
             </h4>
+            <div class="rule-body">
             <div class="proto-block htt-conn-http-block ${type==='http'?'active':''}">
                 <div class="row"><label>Device base URL</label><input type="text" class="htt-conn-http-url" value="${(conn.base_url)||''}" placeholder="http://192.168.1.50"></div>
                 <div class="row"><label>Username</label><input type="text" class="htt-conn-http-user" value="${(conn.username)||''}"></div>
@@ -317,9 +325,19 @@ function httRenderConnections() {
                 <div class="row"><label>Password (optional)</label>${httPassField('htt-conn-webhook-pass', conn.password||'')}</div>
                 <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-conn-webhook-insecure" ${conn.insecure_tls?'checked':''}> Ignore invalid/self-signed HTTPS certificates</label></div>
             </div>
+            </div>
         `;
         wrap.appendChild(box);
     });
+}
+
+function httToggleConnCollapse(i) {
+    httCollectConnections(); // otherwise re-rendering every box would discard unsaved edits in any other connection
+    const conn = httConnections[i];
+    const key = conn.id || ('idx' + i);
+    const currentlyCollapsed = key in httConnCollapsedOverride ? httConnCollapsedOverride[key] : (httConnections.length > 1);
+    httConnCollapsedOverride[key] = !currentlyCollapsed;
+    httRenderConnections();
 }
 
 function httToggleConnType(sel) {
@@ -334,7 +352,9 @@ function httToggleConnType(sel) {
 
 function httAddConnection() {
     httCollectConnections();
-    httConnections.push({ id: httUid(), name: 'New Connection', type: 'mqtt' });
+    const newConn = { id: httUid(), name: 'New Connection', type: 'mqtt' };
+    httConnections.push(newConn);
+    httConnCollapsedOverride[newConn.id] = false; // keep the newly added connection open for editing
     httRenderConnections();
 }
 
@@ -446,9 +466,9 @@ function httRenderRules() {
                 </span>
             </h4>
             <div class="rule-body">
-            <div class="row" style="opacity:0.75">Conditions <span class="htt-help" title="This rule only fires once ALL of the conditions below are true at the same time (AND) - e.g. 'disk temp &#8804; 35C' AND 'no parity check/rebuild active', so a temperature-driven fan-off doesn't fight a separate 'keep the fan on during parity check' rule over the same relay.">&#9432;</span></div>
+            <div class="row" style="opacity:0.75">Conditions <span class="htt-help" title="This rule fires once its conditions evaluate true, combined left-to-right with each condition's own AND/OR (no parentheses/precedence) - e.g. 'disk temp &#8804; 35C' AND 'no parity check/rebuild active', so a temperature-driven fan-off doesn't fight a separate 'keep the fan on during parity check' rule over the same relay.">&#9432;</span></div>
             <div class="htt-conditions">${rule.conditions.map((cond, ci) => httConditionBlock(cond, i, ci, rule.conditions.length)).join('')}</div>
-            <div class="row"><button type="button" onclick="httAddCondition(${i})">+ Add Condition (AND)</button></div>
+            <div class="row"><button type="button" onclick="httAddCondition(${i})">+ Add Condition</button></div>
             <hr style="border:none;border-top:1px solid #666;margin:12px 0">
             <div class="row">
                 <label>Action</label>
@@ -615,16 +635,18 @@ function httCollectRules() {
     boxes.forEach(box => {
         const i = parseInt(box.dataset.index);
         const orig = httRules[i] || {};
-        const conditions = Array.from(box.querySelectorAll('.htt-cond-block')).map(cb => {
+        const conditions = Array.from(box.querySelectorAll('.htt-cond-block')).map((cb, ci) => {
             const diskChecks = cb.querySelectorAll('.htt-disk-one:checked');
             const allChecked = cb.querySelector('.htt-disk-all').checked;
             const disks = allChecked ? ['all'] : Array.from(diskChecks).map(c => c.value);
+            const joinEl = cb.querySelector('.htt-cond-join');
             return {
                 trigger_type: cb.querySelector('.htt-cond-trigger-type').value,
                 disks: disks,
                 aggregate: cb.querySelector('.htt-cond-aggregate').value,
                 direction: cb.querySelector('.htt-cond-direction').value,
                 threshold: parseFloat(cb.querySelector('.htt-cond-threshold').value),
+                join: ci > 0 ? (joinEl ? joinEl.value : 'and') : 'and',
             };
         });
         rules.push({
