@@ -87,7 +87,7 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 
   <h3>Backup / YAML editor</h3>
   <div class="row">
-    <button type="button" onclick="httShowYaml()">View as YAML</button>
+    <button type="button" id="htt-yaml-toggle" onclick="httToggleYaml()">View as YAML</button>
     <a id="htt-yaml-download" href="#" style="display:none;margin-left:10px">Download unraid-disk-event-trigger.yaml</a>
     <button type="button" id="htt-yaml-apply" onclick="httApplyYaml()" style="display:none;margin-left:10px">Validate &amp; Apply YAML</button>
   </div>
@@ -361,9 +361,18 @@ function httTogglePluginEnabled(checkbox) {
         });
 }
 
-function httShowYaml() {
+function httToggleYaml() {
+    const ta = document.getElementById('htt-yaml-view');
+    const isOpen = ta.style.display !== 'none';
+    if (isOpen) {
+        ta.style.display = 'none';
+        document.getElementById('htt-yaml-download').style.display = 'none';
+        document.getElementById('htt-yaml-apply').style.display = 'none';
+        document.getElementById('htt-yaml-msg').textContent = '';
+        document.getElementById('htt-yaml-toggle').textContent = 'View as YAML';
+        return;
+    }
     fetch(HTT_ENDPOINT + '?action=get_config_yaml', { credentials: 'same-origin' }).then(r => r.text()).then(yaml => {
-        const ta = document.getElementById('htt-yaml-view');
         ta.value = yaml;
         ta.style.display = '';
         const link = document.getElementById('htt-yaml-download');
@@ -372,6 +381,7 @@ function httShowYaml() {
         link.download = 'unraid-disk-event-trigger.yaml';
         link.style.display = '';
         document.getElementById('htt-yaml-apply').style.display = '';
+        document.getElementById('htt-yaml-toggle').textContent = 'Hide YAML';
     });
 }
 
