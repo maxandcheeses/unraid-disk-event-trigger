@@ -13,10 +13,10 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 #htt-wrap table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
 #htt-wrap th, #htt-wrap td { padding: 6px 8px; border-bottom: 1px solid #444; text-align: left; vertical-align: top; }
 #htt-wrap .rule-box { border: 1px solid #555; border-radius: 4px; padding: 10px; margin-bottom: 10px; }
-#htt-wrap .rule-box h4 { margin: 0 0 8px 0; }
-#htt-wrap .rule-box.collapsed h4 { margin-bottom: 0; }
+#htt-wrap .rule-box h4 { margin: 0 0 8px 0; display: flex; align-items: center; gap: 6px; }
 #htt-wrap .rule-box.collapsed .rule-body { display: none; }
 #htt-wrap .htt-rule-toggle { cursor: pointer; display: inline-block; width: 16px; text-align: center; user-select: none; }
+#htt-wrap .htt-enabled-label { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; min-width: 0; }
 #htt-wrap label { display: inline-block; min-width: 130px; }
 #htt-wrap input[type=text], #htt-wrap input[type=number], #htt-wrap input[type=password] { width: 220px; }
 #htt-wrap .row { margin-bottom: 6px; }
@@ -130,7 +130,7 @@ function httRenderRules() {
         box.innerHTML = `
             <h4>
                 <span class="htt-rule-toggle" onclick="httToggleCollapse(${i})">${collapsed ? '&#9656;' : '&#9662;'}</span>
-                <input type="checkbox" ${rule.enabled ? 'checked' : ''} class="htt-enabled">
+                <label class="htt-enabled-label"><input type="checkbox" ${rule.enabled ? 'checked' : ''} class="htt-enabled"> Enabled</label>
                 <input type="text" class="htt-name" value="${(rule.name||'').replace(/"/g,'&quot;')}" placeholder="Rule name" style="width:200px">
                 <button type="button" onclick="httRemoveRule(${i})" style="float:right">Remove</button>
                 <button type="button" onclick="httTestRule(${i}, true)" style="float:right;margin-right:6px">Test ON</button>
