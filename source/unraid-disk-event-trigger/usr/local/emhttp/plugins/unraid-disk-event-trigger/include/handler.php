@@ -81,14 +81,16 @@ switch ($action) {
         $rule = json_decode($_POST['rule'] ?? '', true);
         if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
         $m = $rule['mqtt'] ?? [];
-        $result = htt_mqtt_test_connection($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '');
+        $result = htt_mqtt_test_connection($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '', 5, !empty($m['tls']), !empty($m['insecure_tls']));
         htt_log("MQTT connection test for rule '{$rule['name']}': " . ($result['ok'] ? 'OK' : $result['error']));
         respond($result);
 
     case 'get_device_state':
         $rule = json_decode($_POST['rule'] ?? '', true);
         if (!is_array($rule)) respond(['ok' => false, 'error' => 'invalid rule']);
-        $result = (($rule['protocol'] ?? 'http') === 'mqtt') ? htt_query_mqtt_state($rule) : htt_query_http_state($rule);
+        $protocol = $rule['protocol'] ?? 'http';
+        $result = $protocol === 'mqtt' ? htt_query_mqtt_state($rule)
+            : ($protocol === 'webhook' ? htt_query_webhook_state($rule) : htt_query_http_state($rule));
         if ($result['ok']) {
             htt_log("Device state check for rule '{$rule['name']}': raw='{$result['raw']}' -> " . ($result['state'] ?? 'unknown'));
             // Self-heal: sync our tracked hysteresis state to what the device actually reports.

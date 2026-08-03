@@ -66,8 +66,8 @@ function htt_validate_config($config) {
         if (isset($rule['off_temp']) && !is_numeric($rule['off_temp'])) $errors[] = "$label: off_temp must be a number";
         if (isset($rule['on_delay_seconds']) && (!is_numeric($rule['on_delay_seconds']) || $rule['on_delay_seconds'] < 0)) $errors[] = "$label: on_delay_seconds must be a non-negative number";
         if (isset($rule['off_delay_seconds']) && (!is_numeric($rule['off_delay_seconds']) || $rule['off_delay_seconds'] < 0)) $errors[] = "$label: off_delay_seconds must be a non-negative number";
-        if (isset($rule['protocol']) && !in_array($rule['protocol'], ['http', 'mqtt'], true)) {
-            $errors[] = "$label: protocol must be 'http' or 'mqtt'";
+        if (isset($rule['protocol']) && !in_array($rule['protocol'], ['http', 'mqtt', 'webhook'], true)) {
+            $errors[] = "$label: protocol must be 'http', 'mqtt', or 'webhook'";
         }
         if (isset($rule['disks']) && !is_array($rule['disks'])) $errors[] = "$label: disks must be a list";
         if (isset($rule['aggregate']) && !in_array($rule['aggregate'], ['max', 'avg', 'min'], true)) {
@@ -75,6 +75,25 @@ function htt_validate_config($config) {
         }
         if (isset($rule['http']) && !is_array($rule['http'])) $errors[] = "$label: http must be a mapping";
         if (isset($rule['mqtt']) && !is_array($rule['mqtt'])) $errors[] = "$label: mqtt must be a mapping";
+        if (isset($rule['mqtt']['tls']) && !is_bool($rule['mqtt']['tls'])) $errors[] = "$label: mqtt.tls must be true or false";
+        if (isset($rule['mqtt']['insecure_tls']) && !is_bool($rule['mqtt']['insecure_tls'])) $errors[] = "$label: mqtt.insecure_tls must be true or false";
+        if (isset($rule['webhook'])) {
+            if (!is_array($rule['webhook'])) {
+                $errors[] = "$label: webhook must be a mapping";
+            } else {
+                $w = $rule['webhook'];
+                foreach (['on_method', 'off_method'] as $mk) {
+                    if (isset($w[$mk]) && !in_array(strtoupper($w[$mk]), ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+                        $errors[] = "$label: webhook.$mk must be one of GET, POST, PUT, PATCH, DELETE";
+                    }
+                }
+                foreach (['on_url', 'off_url'] as $uk) {
+                    if (!empty($w[$uk]) && !preg_match('#^https?://#i', $w[$uk])) {
+                        $errors[] = "$label: webhook.$uk must start with http:// or https://";
+                    }
+                }
+            }
+        }
     }
     return $errors;
 }
@@ -383,9 +402,16 @@ const HTT_MQTT_CONNACK_REASONS = [
  * handshake. Returns ['ok'=>bool, 'sock'=>resource|null, 'error'=>string].
  * Caller owns the socket on success and must fclose() it when done.
  */
-function htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout = 5) {
+function htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout = 5, $tls = false, $insecureTls = false) {
     $errno = 0; $errstr = '';
-    $sock = @stream_socket_client("tcp://$host:$port", $errno, $errstr, $timeout);
+    $scheme = $tls ? 'ssl' : 'tcp';
+    $context = stream_context_create([
+        'ssl' => [
+            'verify_peer' => !$insecureTls,
+            'verify_peer_name' => !$insecureTls,
+        ],
+    ]);
+    $sock = @stream_socket_client("$scheme://$host:$port", $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT, $context);
     if (!$sock) {
         return ['ok' => false, 'sock' => null, 'error' => "connect failed: $errstr"];
     }
@@ -423,8 +449,8 @@ function htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeou
     return ['ok' => true, 'sock' => $sock, 'error' => ''];
 }
 
-function htt_mqtt_publish($host, $port, $clientId, $username, $password, $topic, $payload, $timeout = 5) {
-    $conn = htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout);
+function htt_mqtt_publish($host, $port, $clientId, $username, $password, $topic, $payload, $timeout = 5, $tls = false, $insecureTls = false) {
+    $conn = htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout, $tls, $insecureTls);
     if (!$conn['ok']) {
         htt_log("MQTT connect failed to $host:$port - {$conn['error']}");
         return false;
@@ -446,10 +472,10 @@ function htt_mqtt_publish($host, $port, $clientId, $username, $password, $topic,
  * Test-only: verify we can reach the broker and authenticate, without
  * publishing anything. Returns ['ok'=>bool, 'error'=>string].
  */
-function htt_mqtt_test_connection($host, $port, $username, $password, $timeout = 5) {
+function htt_mqtt_test_connection($host, $port, $username, $password, $timeout = 5, $tls = false, $insecureTls = false) {
     if ($host === '') return ['ok' => false, 'error' => 'no broker host configured'];
     $clientId = 'httrigger-test-' . substr(md5(microtime()), 0, 8);
-    $conn = htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout);
+    $conn = htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout, $tls, $insecureTls);
     if ($conn['ok']) {
         fwrite($conn['sock'], chr(0xE0) . chr(0x00)); // DISCONNECT
         fclose($conn['sock']);
@@ -501,12 +527,12 @@ function htt_query_http_state($rule) {
  * without publishing anything. Returns
  * ['ok'=>bool, 'payload'=>string|null, 'topic'=>string|null, 'error'=>string].
  */
-function htt_mqtt_read_one($host, $port, $username, $password, $topic, $timeout = 4, $triggerTopic = null, $triggerPayload = null) {
+function htt_mqtt_read_one($host, $port, $username, $password, $topic, $timeout = 4, $triggerTopic = null, $triggerPayload = null, $tls = false, $insecureTls = false) {
     if ($host === '') return ['ok' => false, 'payload' => null, 'topic' => null, 'error' => 'no broker host configured'];
     if ($topic === '') return ['ok' => false, 'payload' => null, 'topic' => null, 'error' => 'no state topic configured'];
 
     $clientId = 'httrigger-state-' . substr(md5(microtime()), 0, 8);
-    $conn = htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout);
+    $conn = htt_mqtt_connect($host, $port, $clientId, $username, $password, $timeout, $tls, $insecureTls);
     if (!$conn['ok']) return ['ok' => false, 'payload' => null, 'topic' => null, 'error' => $conn['error']];
     $sock = $conn['sock'];
     stream_set_timeout($sock, $timeout);
@@ -578,7 +604,7 @@ function htt_query_mqtt_state($rule) {
     // report on change; asking on its .../get topic prompts an immediate
     // report instead of waiting on a retained message that may not exist.
     $getTopic = substr($topic, -4) === '/get' ? null : $topic . '/get';
-    $result = htt_mqtt_read_one($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '', $topic, 5, $getTopic, '{"state":""}');
+    $result = htt_mqtt_read_one($m['host'] ?? '', intval($m['port'] ?? 1883), $m['username'] ?? '', $m['password'] ?? '', $topic, 5, $getTopic, '{"state":""}', !empty($m['tls']), !empty($m['insecure_tls']));
     if (!$result['ok']) return ['ok' => false, 'state' => null, 'raw' => '', 'error' => $result['error']];
 
     $payload = $result['payload'];
@@ -625,7 +651,7 @@ function htt_send_mqtt($rule, $on) {
     $payload = $on ? ($m['on_payload'] ?? 'ON') : ($m['off_payload'] ?? 'OFF');
     if ($topic === '') return false;
     $clientId = 'httrigger-' . substr(md5($rule['id'] . microtime()), 0, 8);
-    $ok = htt_mqtt_publish($host, $port, $clientId, $m['username'] ?? '', $m['password'] ?? '', $topic, $payload);
+    $ok = htt_mqtt_publish($host, $port, $clientId, $m['username'] ?? '', $m['password'] ?? '', $topic, $payload, 5, !empty($m['tls']), !empty($m['insecure_tls']));
     if ($ok) {
         htt_log("MQTT publish OK for rule '{$rule['name']}': $topic = $payload");
     } else {
@@ -634,10 +660,106 @@ function htt_send_mqtt($rule, $on) {
     return $ok;
 }
 
-function htt_send_command($rule, $on) {
-    if (($rule['protocol'] ?? 'http') === 'mqtt') {
-        return htt_send_mqtt($rule, $on);
+/**
+ * Fire a generic HTTP/HTTPS webhook: arbitrary URL/method/headers/body per
+ * on/off state, unlike htt_send_http() which is hardcoded to Tasmota's
+ * cmnd=Power query-string API. Lets rules target any HTTP-controllable
+ * device or automation endpoint (Home Assistant, Node-RED, etc.).
+ */
+/**
+ * Shared curl runner for htt_send_webhook() and htt_query_webhook_state().
+ * Returns ['ok'=>bool (transport-level only, doesn't consider HTTP status),
+ * 'status'=>int, 'body'=>string, 'error'=>string].
+ */
+function htt_webhook_request($url, $method, $body, $headersRaw, $username, $password, $insecureTls) {
+    if (!preg_match('#^https?://#i', $url)) {
+        return ['ok' => false, 'status' => 0, 'body' => '', 'error' => 'URL must start with http:// or https://'];
     }
+    $method = strtoupper($method ?: 'GET');
+
+    $headers = [];
+    foreach (preg_split('/\r?\n/', $headersRaw ?? '') as $line) {
+        $line = trim($line);
+        if ($line === '' || strpos($line, ':') === false) continue;
+        $headers[] = $line;
+    }
+
+    $ch = curl_init($url);
+    $opts = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 8,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_HTTPHEADER => $headers,
+    ];
+    if (in_array($method, ['POST', 'PUT', 'PATCH'], true) && $body !== '') {
+        $opts[CURLOPT_POSTFIELDS] = $body;
+    }
+    if (!empty($username)) {
+        $opts[CURLOPT_USERPWD] = $username . ':' . ($password ?? '');
+    }
+    if (!empty($insecureTls)) {
+        // User opted in to trusting self-signed/expired certs on this endpoint
+        // (common for LAN devices/home automation hubs with no real CA cert).
+        $opts[CURLOPT_SSL_VERIFYPEER] = false;
+        $opts[CURLOPT_SSL_VERIFYHOST] = 0;
+    }
+    curl_setopt_array($ch, $opts);
+    $result = curl_exec($ch);
+    $err = curl_error($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($result === false) {
+        return ['ok' => false, 'status' => 0, 'body' => '', 'error' => $err];
+    }
+    return ['ok' => true, 'status' => $status, 'body' => $result, 'error' => ''];
+}
+
+function htt_send_webhook($rule, $on) {
+    $w = $rule['webhook'] ?? [];
+    $url = trim($on ? ($w['on_url'] ?? '') : ($w['off_url'] ?? ''));
+    if ($url === '') return false;
+    $method = $on ? ($w['on_method'] ?? 'GET') : ($w['off_method'] ?? 'GET');
+    $body = $on ? ($w['on_body'] ?? '') : ($w['off_body'] ?? '');
+
+    $r = htt_webhook_request($url, $method, $body, $w['headers'] ?? '', $w['username'] ?? '', $w['password'] ?? '', $w['insecure_tls'] ?? false);
+    if (!$r['ok']) {
+        htt_log("Webhook send failed for rule '{$rule['name']}': {$r['error']}");
+        return false;
+    }
+    if ($r['status'] >= 400) {
+        htt_log("Webhook send for rule '{$rule['name']}' got HTTP {$r['status']}: $method $url");
+        return false;
+    }
+    htt_log("Webhook send OK for rule '{$rule['name']}': $method $url -> HTTP {$r['status']}");
+    return true;
+}
+
+/**
+ * Debug-only: fire the configured state-check request and hand back the raw
+ * response verbatim, with no attempt to interpret it as on/off - webhooks are
+ * arbitrary endpoints, so unlike htt_query_http_state()/htt_query_mqtt_state()
+ * there's no reliable convention to parse. Lets users confirm the URL,
+ * auth, and headers are wired up correctly.
+ */
+function htt_query_webhook_state($rule) {
+    $w = $rule['webhook'] ?? [];
+    $url = trim($w['state_url'] ?? '');
+    if ($url === '') return ['ok' => false, 'state' => null, 'raw' => '', 'error' => 'no state URL configured'];
+    $method = $w['state_method'] ?? 'GET';
+
+    $r = htt_webhook_request($url, $method, '', $w['headers'] ?? '', $w['username'] ?? '', $w['password'] ?? '', $w['insecure_tls'] ?? false);
+    if (!$r['ok']) {
+        return ['ok' => false, 'state' => null, 'raw' => '', 'error' => $r['error']];
+    }
+    return ['ok' => true, 'state' => null, 'raw' => "HTTP {$r['status']}\n{$r['body']}", 'error' => ''];
+}
+
+function htt_send_command($rule, $on) {
+    $protocol = $rule['protocol'] ?? 'http';
+    if ($protocol === 'mqtt') return htt_send_mqtt($rule, $on);
+    if ($protocol === 'webhook') return htt_send_webhook($rule, $on);
     return htt_send_http($rule, $on);
 }
 

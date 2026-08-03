@@ -206,8 +206,9 @@ function httRenderRules() {
             <div class="row">
                 <label>Protocol</label>
                 <select class="htt-protocol" onchange="httToggleProto(this)">
-                    <option value="http" ${rule.protocol!=='mqtt'?'selected':''}>Tasmota HTTP</option>
+                    <option value="http" ${rule.protocol!=='mqtt'&&rule.protocol!=='webhook'?'selected':''}>Tasmota HTTP</option>
                     <option value="mqtt" ${rule.protocol==='mqtt'?'selected':''}>MQTT (Tasmota or zigbee2mqtt)</option>
+                    <option value="webhook" ${rule.protocol==='webhook'?'selected':''}>Generic HTTP/HTTPS webhook</option>
                 </select>
             </div>
             <div class="proto-block htt-http-block ${rule.protocol!=='mqtt'?'active':''}">
@@ -220,6 +221,8 @@ function httRenderRules() {
             <div class="proto-block htt-mqtt-block ${rule.protocol==='mqtt'?'active':''}">
                 <div class="row"><label>Broker host</label><input type="text" class="htt-mqtt-host" value="${(rule.mqtt?.host)||''}" placeholder="192.168.1.10"></div>
                 <div class="row"><label>Broker port</label><input type="number" class="htt-mqtt-port" value="${(rule.mqtt?.port)||1883}"></div>
+                <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-mqtt-tls" ${rule.mqtt?.tls?'checked':''}> Use TLS (mqtts, typically port 8883)</label></div>
+                <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-mqtt-insecure" ${rule.mqtt?.insecure_tls?'checked':''}> Ignore invalid/self-signed broker certificates</label> <span class="htt-help" title="Skips TLS certificate verification for this broker. Only enable for trusted LAN brokers with self-signed certs - this disables protection against man-in-the-middle attacks.">&#9432;</span></div>
                 <div class="row"><label>Username</label><input type="text" class="htt-mqtt-user" value="${(rule.mqtt?.username)||''}"></div>
                 <div class="row"><label>Password</label>${httPassField('htt-mqtt-pass', (rule.mqtt?.password)||'')}</div>
                 <div class="row"><button type="button" onclick="httTestMqtt(${i})">Test MQTT Connection</button></div>
@@ -232,6 +235,33 @@ function httRenderRules() {
                 <div class="row" style="display:${rule.mqtt?.state_is_json?'':'none'}"><label>State JSON key</label><input type="text" class="htt-mqtt-statekey" value="${(rule.mqtt?.state_json_key)||'state'}" placeholder="state"></div>
                 <div class="row"><button type="button" onclick="httCheckState(${i})">Check Device State</button></div>
             </div>
+            <div class="proto-block htt-webhook-block ${rule.protocol==='webhook'?'active':''}">
+                <div class="row"><label>ON method</label>
+                    <select class="htt-webhook-on-method">
+                        ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${(rule.webhook?.on_method||'GET')===m?'selected':''}>${m}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="row"><label>ON URL</label><input type="text" class="htt-webhook-on-url" value="${(rule.webhook?.on_url)||''}" placeholder="https://host/api/on"></div>
+                <div class="row"><label>ON body (optional)</label><input type="text" class="htt-webhook-on-body" value="${(rule.webhook?.on_body)||''}" placeholder="raw request body for POST/PUT/PATCH"></div>
+                <div class="row"><label>OFF method</label>
+                    <select class="htt-webhook-off-method">
+                        ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${(rule.webhook?.off_method||'GET')===m?'selected':''}>${m}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="row"><label>OFF URL</label><input type="text" class="htt-webhook-off-url" value="${(rule.webhook?.off_url)||''}" placeholder="https://host/api/off"></div>
+                <div class="row"><label>OFF body (optional)</label><input type="text" class="htt-webhook-off-body" value="${(rule.webhook?.off_body)||''}" placeholder="raw request body for POST/PUT/PATCH"></div>
+                <div class="row"><label>Headers (optional)</label><textarea class="htt-webhook-headers" style="width:320px;height:60px;font-family:monospace;font-size:12px" placeholder="Content-Type: application/json&#10;X-Api-Key: xxxx">${(rule.webhook?.headers)||''}</textarea></div>
+                <div class="row"><label>Username (optional)</label><input type="text" class="htt-webhook-user" value="${(rule.webhook?.username)||''}"></div>
+                <div class="row"><label>Password (optional)</label>${httPassField('htt-webhook-pass', (rule.webhook?.password)||'')}</div>
+                <div class="row"><label style="min-width:auto"><input type="checkbox" class="htt-webhook-insecure" ${rule.webhook?.insecure_tls?'checked':''}> Ignore invalid/self-signed HTTPS certificates</label> <span class="htt-help" title="Skips TLS certificate verification for this endpoint. Only enable for trusted LAN devices with self-signed certs - this disables protection against man-in-the-middle attacks.">&#9432;</span></div>
+                <div class="row"><label>State URL (optional)</label><input type="text" class="htt-webhook-state-url" value="${(rule.webhook?.state_url)||''}" placeholder="https://host/api/status"></div>
+                <div class="row"><label>State method</label>
+                    <select class="htt-webhook-state-method">
+                        ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${(rule.webhook?.state_method||'GET')===m?'selected':''}>${m}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="row"><button type="button" onclick="httCheckState(${i})">Check Device State</button></div>
+            </div>
             </div>
         `;
         wrap.appendChild(box);
@@ -242,6 +272,7 @@ function httToggleProto(sel) {
     const box = sel.closest('.rule-box');
     box.querySelector('.htt-http-block').classList.toggle('active', sel.value === 'http');
     box.querySelector('.htt-mqtt-block').classList.toggle('active', sel.value === 'mqtt');
+    box.querySelector('.htt-webhook-block').classList.toggle('active', sel.value === 'webhook');
 }
 
 function httToggleCollapse(i) {
@@ -253,7 +284,7 @@ function httToggleCollapse(i) {
 }
 
 function httAddRule() {
-    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], aggregate: 'max', on_temp: 40, off_temp: 35, on_delay_seconds: 0, off_delay_seconds: 0, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {} };
+    const newRule = { id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], aggregate: 'max', on_temp: 40, off_temp: 35, on_delay_seconds: 0, off_delay_seconds: 0, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {}, webhook: {} };
     httRules.push(newRule);
     httCollapsedOverride[newRule.id] = false; // keep the newly added rule open for editing
     httRenderRules();
@@ -297,6 +328,8 @@ function httCollectRules() {
             mqtt: {
                 host: box.querySelector('.htt-mqtt-host').value,
                 port: parseInt(box.querySelector('.htt-mqtt-port').value) || 1883,
+                tls: box.querySelector('.htt-mqtt-tls').checked,
+                insecure_tls: box.querySelector('.htt-mqtt-insecure').checked,
                 username: box.querySelector('.htt-mqtt-user').value,
                 password: box.querySelector('.htt-mqtt-pass').value,
                 on_topic: box.querySelector('.htt-mqtt-ontopic').value,
@@ -306,6 +339,20 @@ function httCollectRules() {
                 state_topic: box.querySelector('.htt-mqtt-statetopic').value,
                 state_is_json: box.querySelector('.htt-mqtt-statejson').checked,
                 state_json_key: box.querySelector('.htt-mqtt-statekey').value || 'state',
+            },
+            webhook: {
+                on_method: box.querySelector('.htt-webhook-on-method').value,
+                on_url: box.querySelector('.htt-webhook-on-url').value,
+                on_body: box.querySelector('.htt-webhook-on-body').value,
+                off_method: box.querySelector('.htt-webhook-off-method').value,
+                off_url: box.querySelector('.htt-webhook-off-url').value,
+                off_body: box.querySelector('.htt-webhook-off-body').value,
+                headers: box.querySelector('.htt-webhook-headers').value,
+                username: box.querySelector('.htt-webhook-user').value,
+                password: box.querySelector('.htt-webhook-pass').value,
+                insecure_tls: box.querySelector('.htt-webhook-insecure').checked,
+                state_url: box.querySelector('.htt-webhook-state-url').value,
+                state_method: box.querySelector('.htt-webhook-state-method').value,
             },
         });
     });

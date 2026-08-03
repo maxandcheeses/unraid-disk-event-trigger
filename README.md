@@ -8,12 +8,22 @@ switches when configurable thresholds are crossed, with hysteresis
 
 - Multiple independent rules, each covering any subset of array/cache disks
   (or "all"), aggregated by max/avg/min.
-- Two trigger protocols per rule:
+- Three trigger protocols per rule:
   - **HTTP**: Tasmota's native `http://<ip>/cm?cmnd=Power On|Off` API.
   - **MQTT**: a minimal built-in MQTT v3.1.1 QoS0 publisher (no external
     `mosquitto_pub` dependency) — works with Tasmota's MQTT mode or
     zigbee2mqtt (e.g. topic `zigbee2mqtt/<device>/set`, payload
-    `{"state":"ON"}`).
+    `{"state":"ON"}`). Optional TLS (mqtts) with an "ignore invalid/
+    self-signed broker certificates" toggle for LAN brokers without a real
+    CA cert.
+  - **Generic HTTP/HTTPS webhook**: independent method/URL/body/headers for
+    ON and OFF, for anything Tasmota's fixed API doesn't cover (Home
+    Assistant, Node-RED, other automation hubs). Supports optional basic
+    auth and an "ignore invalid/self-signed HTTPS certificates" toggle for
+    LAN endpoints with self-signed certs. An optional separate state
+    URL/method backs its own "Check Device State" button, which shows the
+    raw HTTP status/body verbatim for debugging (unlike HTTP/MQTT, it
+    can't infer on/off from an arbitrary endpoint's response).
 - Background poller (`/etc/rc.d/rc.unraid-disk-event-trigger`) runs continuously
   at a configurable interval (default 60s), independent of Unraid's cron
   granularity.
@@ -74,6 +84,8 @@ build.sh                  packages source/ into unraid-disk-event-trigger.txz an
       "mqtt": {
         "host": "192.168.1.10",
         "port": 1883,
+        "tls": false,
+        "insecure_tls": false,
         "username": "",
         "password": "",
         "on_topic": "zigbee2mqtt/disk-fan/set",
@@ -92,11 +104,8 @@ the first poll after boot re-evaluates and re-sends the command).
 
 ## Not yet done / worth hardening before real-world use
 
-- `.plg` currently has placeholder `srcURL`/`pluginURL` — you must host the
-  built package somewhere.
-- No TLS support for MQTT (plain TCP only); fine for LAN brokers, not for
-  anything exposed publicly.
 - Only tested by static review — I don't have a live Unraid box or a
-  Tasmota/MQTT device in this environment, so please smoke-test the
-  install, the disk temp table, and both HTTP and MQTT "Test ON/OFF"
-  buttons before relying on it to actually switch something.
+  Tasmota/MQTT/webhook device in this environment, so please smoke-test the
+  install, the disk temp table, and the HTTP, MQTT, and webhook
+  "Test ON/OFF" / "Check Device State" buttons before relying on it to
+  actually switch something.
