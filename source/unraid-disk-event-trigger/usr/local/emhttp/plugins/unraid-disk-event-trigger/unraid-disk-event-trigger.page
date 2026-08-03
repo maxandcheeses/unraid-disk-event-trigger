@@ -1,0 +1,273 @@
+Menu="Utilities"
+Title="Disk Event Trigger"
+Icon="temperature.png"
+---
+<?php
+require_once '/usr/local/emhttp/plugins/unraid-disk-event-trigger/include/lib.php';
+$config = htt_load_config();
+$disks = htt_list_disks();
+?>
+<style>
+#htt-wrap { max-width: 1100px; }
+#htt-wrap table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+#htt-wrap th, #htt-wrap td { padding: 6px 8px; border-bottom: 1px solid #444; text-align: left; vertical-align: top; }
+#htt-wrap .rule-box { border: 1px solid #555; border-radius: 4px; padding: 10px; margin-bottom: 10px; }
+#htt-wrap .rule-box h4 { margin: 0 0 8px 0; }
+#htt-wrap label { display: inline-block; min-width: 130px; }
+#htt-wrap input[type=text], #htt-wrap input[type=number], #htt-wrap input[type=password] { width: 220px; }
+#htt-wrap .row { margin-bottom: 6px; }
+#htt-wrap .disk-list { max-height: 120px; overflow-y: auto; border: 1px solid #555; padding: 6px; width: 300px; }
+#htt-wrap .proto-block { display: none; margin-top: 6px; padding-left: 10px; border-left: 2px solid #666; }
+#htt-wrap .proto-block.active { display: block; }
+#htt-status { font-family: monospace; white-space: pre-wrap; font-size: 12px; max-height: 300px; overflow-y: auto; background: rgba(128,128,128,0.1); padding: 8px; }
+</style>
+
+<div id="htt-wrap">
+  <h3>Disk Temperatures</h3>
+  <table>
+    <thead><tr><th>Disk</th><th>Device</th><th>Spun down</th><th>Temp (&deg;C)</th></tr></thead>
+    <tbody id="htt-disk-table">
+      <?php foreach ($disks as $d): ?>
+      <tr>
+        <td><?= htmlspecialchars($d['name']) ?></td>
+        <td><?= htmlspecialchars($d['device']) ?></td>
+        <td><?= $d['spundown'] ? 'yes' : 'no' ?></td>
+        <td><?= $d['spundown'] ? '-' : htmlspecialchars($d['temp'] ?? '?') ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </tbody>
+  </table>
+
+  <h3>Service</h3>
+  <div class="row">
+    <span id="htt-array-status"></span>
+  </div>
+  <div class="row">
+    <span id="htt-service-status">checking...</span>
+    &nbsp;
+    <button type="button" onclick="httServiceControl('start')">Start</button>
+    <button type="button" onclick="httServiceControl('stop')">Stop</button>
+    <button type="button" onclick="httServiceControl('restart')">Restart</button>
+  </div>
+
+  <h3>Global Settings</h3>
+  <div class="row">
+    <label>Poll interval (seconds)</label>
+    <input type="number" id="htt-poll-interval" min="10" value="<?= intval($config['poll_interval']) ?>">
+  </div>
+
+  <h3>Rules</h3>
+  <div id="htt-rules"></div>
+  <button type="button" onclick="httAddRule()">+ Add Rule</button>
+  &nbsp;&nbsp;
+  <button type="button" onclick="httSaveConfig()">Save &amp; Apply</button>
+  <span id="htt-save-msg"></span>
+
+  <h3>Log</h3>
+  <button type="button" onclick="httLoadLog()">Refresh Log</button>
+  <div id="htt-log"></div>
+</div>
+
+<script>
+const HTT_DISKS = <?= json_encode(array_values($disks)) ?>;
+let httRules = <?= json_encode($config['rules']) ?>;
+
+function httUid() { return Math.random().toString(16).slice(2, 10); }
+
+function httDiskCheckboxes(selected) {
+    selected = selected || ['all'];
+    let allChecked = selected.includes('all') ? 'checked' : '';
+    let html = `<label><input type="checkbox" class="htt-disk-all" ${allChecked} onchange="this.closest('.disk-list').querySelectorAll('.htt-disk-one').forEach(c=>c.disabled=this.checked)"> All array/cache disks</label><br>`;
+    HTT_DISKS.forEach(d => {
+        let checked = selected.includes(d.name) ? 'checked' : '';
+        let disabled = allChecked ? 'disabled' : '';
+        html += `<label><input type="checkbox" class="htt-disk-one" value="${d.name}" ${checked} ${disabled}> ${d.name} (${d.device})</label><br>`;
+    });
+    return html;
+}
+
+function httRenderRules() {
+    const wrap = document.getElementById('htt-rules');
+    wrap.innerHTML = '';
+    httRules.forEach((rule, i) => {
+        const box = document.createElement('div');
+        box.className = 'rule-box';
+        box.dataset.index = i;
+        box.innerHTML = `
+            <h4>
+                <input type="checkbox" ${rule.enabled ? 'checked' : ''} class="htt-enabled">
+                <input type="text" class="htt-name" value="${(rule.name||'').replace(/"/g,'&quot;')}" placeholder="Rule name" style="width:200px">
+                <button type="button" onclick="httRemoveRule(${i})" style="float:right">Remove</button>
+                <button type="button" onclick="httTestRule(${i}, true)" style="float:right;margin-right:6px">Test ON</button>
+                <button type="button" onclick="httTestRule(${i}, false)" style="float:right;margin-right:6px">Test OFF</button>
+            </h4>
+            <div class="row">
+                <label>Disks</label>
+                <div class="disk-list">${httDiskCheckboxes(rule.disks)}</div>
+            </div>
+            <div class="row">
+                <label>Aggregate</label>
+                <select class="htt-aggregate">
+                    <option value="max" ${rule.aggregate==='max'?'selected':''}>Max (hottest disk)</option>
+                    <option value="avg" ${rule.aggregate==='avg'?'selected':''}>Average</option>
+                    <option value="min" ${rule.aggregate==='min'?'selected':''}>Min (coolest disk)</option>
+                </select>
+            </div>
+            <div class="row">
+                <label>Turn ON at &ge;</label>
+                <input type="number" class="htt-on-temp" value="${rule.on_temp ?? 40}"> &deg;C
+            </div>
+            <div class="row">
+                <label>Turn OFF at &le;</label>
+                <input type="number" class="htt-off-temp" value="${rule.off_temp ?? 35}"> &deg;C
+            </div>
+            <div class="row">
+                <label>Also force ON during</label>
+                <label style="min-width:auto;margin-right:14px"><input type="checkbox" class="htt-force-parity" ${rule.trigger_on_parity_check?'checked':''}> parity check</label>
+                <label style="min-width:auto"><input type="checkbox" class="htt-force-rebuild" ${rule.trigger_on_rebuild?'checked':''}> array/data rebuild</label>
+            </div>
+            <div class="row">
+                <label>Protocol</label>
+                <select class="htt-protocol" onchange="httToggleProto(this)">
+                    <option value="http" ${rule.protocol!=='mqtt'?'selected':''}>Tasmota HTTP</option>
+                    <option value="mqtt" ${rule.protocol==='mqtt'?'selected':''}>MQTT (Tasmota or zigbee2mqtt)</option>
+                </select>
+            </div>
+            <div class="proto-block htt-http-block ${rule.protocol!=='mqtt'?'active':''}">
+                <div class="row"><label>Device base URL</label><input type="text" class="htt-http-url" value="${(rule.http?.base_url)||''}" placeholder="http://192.168.1.50"></div>
+                <div class="row"><label>Relay index (optional)</label><input type="text" class="htt-http-idx" value="${(rule.http?.device_index)||''}" placeholder="e.g. 2 for Power2"></div>
+                <div class="row"><label>Username</label><input type="text" class="htt-http-user" value="${(rule.http?.username)||''}"></div>
+                <div class="row"><label>Password</label><input type="password" class="htt-http-pass" value="${(rule.http?.password)||''}"></div>
+            </div>
+            <div class="proto-block htt-mqtt-block ${rule.protocol==='mqtt'?'active':''}">
+                <div class="row"><label>Broker host</label><input type="text" class="htt-mqtt-host" value="${(rule.mqtt?.host)||''}" placeholder="192.168.1.10"></div>
+                <div class="row"><label>Broker port</label><input type="number" class="htt-mqtt-port" value="${(rule.mqtt?.port)||1883}"></div>
+                <div class="row"><label>Username</label><input type="text" class="htt-mqtt-user" value="${(rule.mqtt?.username)||''}"></div>
+                <div class="row"><label>Password</label><input type="password" class="htt-mqtt-pass" value="${(rule.mqtt?.password)||''}"></div>
+                <div class="row"><label>ON topic</label><input type="text" class="htt-mqtt-ontopic" value="${(rule.mqtt?.on_topic)||''}" placeholder="cmnd/tasmota_xx/POWER  or  zigbee2mqtt/plug/set"></div>
+                <div class="row"><label>ON payload</label><input type="text" class="htt-mqtt-onpayload" value="${(rule.mqtt?.on_payload)||'ON'}"></div>
+                <div class="row"><label>OFF topic</label><input type="text" class="htt-mqtt-offtopic" value="${(rule.mqtt?.off_topic)||''}" placeholder="leave blank to reuse ON topic"></div>
+                <div class="row"><label>OFF payload</label><input type="text" class="htt-mqtt-offpayload" value="${(rule.mqtt?.off_payload)||'OFF'}"></div>
+            </div>
+        `;
+        wrap.appendChild(box);
+    });
+}
+
+function httToggleProto(sel) {
+    const box = sel.closest('.rule-box');
+    box.querySelector('.htt-http-block').classList.toggle('active', sel.value === 'http');
+    box.querySelector('.htt-mqtt-block').classList.toggle('active', sel.value === 'mqtt');
+}
+
+function httAddRule() {
+    httRules.push({ id: httUid(), name: 'New Rule', enabled: true, disks: ['all'], aggregate: 'max', on_temp: 40, off_temp: 35, trigger_on_parity_check: true, trigger_on_rebuild: true, protocol: 'http', http: {}, mqtt: {} });
+    httRenderRules();
+}
+
+function httRemoveRule(i) {
+    httCollectRules();
+    httRules.splice(i, 1);
+    httRenderRules();
+}
+
+function httCollectRules() {
+    const boxes = document.querySelectorAll('#htt-rules .rule-box');
+    const rules = [];
+    boxes.forEach(box => {
+        const i = parseInt(box.dataset.index);
+        const orig = httRules[i] || {};
+        const diskChecks = box.querySelectorAll('.htt-disk-one:checked');
+        const allChecked = box.querySelector('.htt-disk-all').checked;
+        const disks = allChecked ? ['all'] : Array.from(diskChecks).map(c => c.value);
+        rules.push({
+            id: orig.id || httUid(),
+            name: box.querySelector('.htt-name').value || 'Rule',
+            enabled: box.querySelector('.htt-enabled').checked,
+            disks: disks,
+            aggregate: box.querySelector('.htt-aggregate').value,
+            on_temp: parseFloat(box.querySelector('.htt-on-temp').value),
+            off_temp: parseFloat(box.querySelector('.htt-off-temp').value),
+            trigger_on_parity_check: box.querySelector('.htt-force-parity').checked,
+            trigger_on_rebuild: box.querySelector('.htt-force-rebuild').checked,
+            protocol: box.querySelector('.htt-protocol').value,
+            http: {
+                base_url: box.querySelector('.htt-http-url').value,
+                device_index: box.querySelector('.htt-http-idx').value,
+                username: box.querySelector('.htt-http-user').value,
+                password: box.querySelector('.htt-http-pass').value,
+            },
+            mqtt: {
+                host: box.querySelector('.htt-mqtt-host').value,
+                port: parseInt(box.querySelector('.htt-mqtt-port').value) || 1883,
+                username: box.querySelector('.htt-mqtt-user').value,
+                password: box.querySelector('.htt-mqtt-pass').value,
+                on_topic: box.querySelector('.htt-mqtt-ontopic').value,
+                on_payload: box.querySelector('.htt-mqtt-onpayload').value,
+                off_topic: box.querySelector('.htt-mqtt-offtopic').value,
+                off_payload: box.querySelector('.htt-mqtt-offpayload').value,
+            },
+        });
+    });
+    httRules = rules;
+    return rules;
+}
+
+function httSaveConfig() {
+    const rules = httCollectRules();
+    const config = { poll_interval: parseInt(document.getElementById('htt-poll-interval').value) || 60, rules: rules };
+    fetch('/plugins/unraid-disk-event-trigger/include/handler.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=save_config&config=' + encodeURIComponent(JSON.stringify(config)),
+    }).then(r => r.json()).then(d => {
+        document.getElementById('htt-save-msg').textContent = d.ok ? ' Saved and applied.' : ' Error saving.';
+        setTimeout(() => document.getElementById('htt-save-msg').textContent = '', 3000);
+        httRenderRules();
+    });
+}
+
+function httTestRule(i, on) {
+    httCollectRules();
+    const rule = httRules[i];
+    fetch('/plugins/unraid-disk-event-trigger/include/handler.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=test_command&rule=' + encodeURIComponent(JSON.stringify(rule)) + '&on=' + (on ? '1' : '0'),
+    }).then(r => r.json()).then(d => alert(d.ok ? 'Command sent successfully' : 'Command failed - check log'));
+}
+
+function httServiceControl(cmd) {
+    fetch('/plugins/unraid-disk-event-trigger/include/handler.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=service_control&cmd=' + cmd,
+    }).then(() => setTimeout(httLoadStatus, 1500));
+}
+
+function httLoadStatus() {
+    fetch('/plugins/unraid-disk-event-trigger/include/handler.php?action=get_status').then(r => r.json()).then(d => {
+        document.getElementById('htt-service-status').textContent = d.service_status;
+        const a = d.array || {};
+        document.getElementById('htt-array-status').textContent = a.active
+            ? `Array operation in progress: ${a.action} (parity check: ${a.is_parity_check}, rebuild: ${a.is_rebuild})`
+            : 'No parity check / rebuild in progress.';
+        const tbody = document.getElementById('htt-disk-table');
+        tbody.innerHTML = '';
+        d.disks.forEach(disk => {
+            tbody.innerHTML += `<tr><td>${disk.name}</td><td>${disk.device}</td><td>${disk.spundown?'yes':'no'}</td><td>${disk.spundown?'-':(disk.live_temp ?? '?')}</td></tr>`;
+        });
+    });
+}
+
+function httLoadLog() {
+    fetch('/plugins/unraid-disk-event-trigger/include/handler.php?action=get_log').then(r => r.json()).then(d => {
+        document.getElementById('htt-log').innerHTML = '<div id="htt-status">' + (d.log || '(empty)').replace(/</g,'&lt;') + '</div>';
+    });
+}
+
+httRenderRules();
+httLoadStatus();
+httLoadLog();
+setInterval(httLoadStatus, 15000);
+</script>

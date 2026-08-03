@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "unraid-disk-event-trigger">
+<!ENTITY author    "maxandcheeses">
+<!ENTITY version   "2026.08.02">
+<!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
+<!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/&version;/unraid-disk-event-trigger.txz">
+<!ENTITY srcMD5     "7c86362b1d288284f7fe33e54bc6b0ce">
+]>
+
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
+
+<CHANGES>
+###2026.08.02
+- Initial release: SMART disk temp monitoring with HTTP/MQTT Tasmota &amp; zigbee2mqtt triggers.
+</CHANGES>
+
+<FILE Name="/boot/config/plugins/&name;/&name;.txz" Run="upgradepkg --install-new">
+<URL>&srcURL;</URL>
+<MD5>&srcMD5;</MD5>
+</FILE>
+
+<FILE Run="/bin/bash">
+<INLINE>
+mkdir -p /boot/config/plugins/&name;
+if [ ! -f /boot/config/plugins/&name;/rules.json ]; then
+  cat > /boot/config/plugins/&name;/rules.json <<'EOF'
+{
+    "poll_interval": 60,
+    "rules": []
+}
+EOF
+fi
+chmod +x /etc/rc.d/rc.unraid-disk-event-trigger
+/etc/rc.d/rc.unraid-disk-event-trigger restart
+echo "unraid-disk-event-trigger installed."
+</INLINE>
+</FILE>
+
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+/etc/rc.d/rc.unraid-disk-event-trigger stop
+removepkg &name;
+</INLINE>
+</FILE>
+
+</PLUGIN>
