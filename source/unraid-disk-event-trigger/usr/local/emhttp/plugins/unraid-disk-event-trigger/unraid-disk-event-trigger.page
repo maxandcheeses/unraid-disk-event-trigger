@@ -17,6 +17,9 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 #htt-wrap .rule-box.collapsed .rule-body { display: none; }
 #htt-wrap .htt-rule-toggle { cursor: pointer; display: inline-block; width: 16px; text-align: center; user-select: none; }
 #htt-wrap .htt-enabled-label { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; min-width: 0; }
+#htt-wrap .htt-relay-badge { font-size: 11px; font-weight: normal; padding: 2px 8px; border-radius: 10px; background: rgba(128,128,128,0.2); margin-left: 8px; }
+#htt-wrap .htt-relay-badge.on { background: rgba(80,180,80,0.35); }
+#htt-wrap .htt-relay-badge.off { background: rgba(180,80,80,0.25); }
 #htt-wrap label { display: inline-block; min-width: 130px; }
 #htt-wrap input[type=text], #htt-wrap input[type=number], #htt-wrap input[type=password] { width: 220px; }
 #htt-wrap .row { margin-bottom: 6px; }
@@ -133,6 +136,7 @@ function httRenderRules() {
                 <span class="htt-rule-toggle" onclick="httToggleCollapse(${i})">${collapsed ? '&#9656;' : '&#9662;'}</span>
                 <label class="htt-enabled-label"><input type="checkbox" ${rule.enabled ? 'checked' : ''} class="htt-enabled"> Enabled</label>
                 <input type="text" class="htt-name" value="${(rule.name||'').replace(/"/g,'&quot;')}" placeholder="Rule name" style="width:200px">
+                <span class="htt-relay-badge" data-rule-id="${rule.id||''}">tracked state: unknown</span>
                 <button type="button" onclick="httRemoveRule(${i})" style="float:right">Remove</button>
                 <button type="button" onclick="httTestRule(${i}, true)" style="float:right;margin-right:6px">Test ON</button>
                 <button type="button" onclick="httTestRule(${i}, false)" style="float:right;margin-right:6px">Test OFF</button>
@@ -310,6 +314,7 @@ function httCheckState(i) {
             if (!d.ok) { alert('Could not read device state: ' + (d.error || 'unknown error')); return; }
             const stateStr = d.state ? d.state.toUpperCase() : 'unrecognized';
             alert('Device reports: ' + stateStr + '\nRaw: ' + d.raw + '\n\n(internal tracked state has been synced to match)');
+            httLoadStatus();
         });
 }
 
@@ -328,6 +333,18 @@ function httLoadStatus() {
         tbody.innerHTML = '';
         d.disks.forEach(disk => {
             tbody.innerHTML += `<tr><td>${disk.name}</td><td>${disk.device}</td><td>${disk.spundown?'yes':'no'}</td><td>${disk.spundown?'-':(disk.live_temp ?? '?')}</td></tr>`;
+        });
+        const stateByRuleId = d.state || {};
+        document.querySelectorAll('.htt-relay-badge').forEach(badge => {
+            const s = stateByRuleId[badge.dataset.ruleId];
+            badge.classList.remove('on', 'off');
+            if (!s || !s.relay) {
+                badge.textContent = 'tracked state: unknown';
+            } else {
+                badge.classList.add(s.relay);
+                const tempStr = (s.last_temp !== undefined && s.last_temp !== null) ? `, ${s.last_temp}°C` : '';
+                badge.textContent = `tracked state: ${s.relay.toUpperCase()}${tempStr}`;
+            }
         });
     });
 }
