@@ -186,6 +186,8 @@ function httRenderRules() {
                 ${httBadgeHtml(rule)}
                 <button type="button" onclick="httRemoveRule(${i})" style="float:right">Remove</button>
                 <button type="button" onclick="httDuplicateRule(${i})" style="float:right;margin-right:6px">Duplicate</button>
+                <button type="button" onclick="httMoveRule(${i},1)" ${i===httRules.length-1?'disabled':''} title="Move down (rules run in this order)" style="float:right;margin-right:6px">&#8595;</button>
+                <button type="button" onclick="httMoveRule(${i},-1)" ${i===0?'disabled':''} title="Move up (rules run in this order)" style="float:right;margin-right:2px">&#8593;</button>
                 <button type="button" onclick="httTestRule(${i})" style="float:right;margin-right:6px" title="Fires this rule's configured action once, regardless of current temp/usage/array state">Test</button>
             </h4>
             <div class="rule-body">
@@ -346,6 +348,15 @@ function httDuplicateRule(i) {
 function httRemoveRule(i) {
     httCollectRules();
     httRules.splice(i, 1);
+    httRenderRules();
+}
+
+/** Rules run in this order (top to bottom) - matches poll-cycle execution order 1:1. */
+function httMoveRule(i, delta) {
+    httCollectRules();
+    const j = i + delta;
+    if (j < 0 || j >= httRules.length) return;
+    [httRules[i], httRules[j]] = [httRules[j], httRules[i]];
     httRenderRules();
 }
 

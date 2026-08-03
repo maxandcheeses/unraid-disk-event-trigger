@@ -820,7 +820,10 @@ function htt_array_status() {
  * single condition is met. Each rule is single-direction (on or off) with
  * its own threshold/delay - hysteresis is achieved by configuring a pair
  * of rules (e.g. an "on" rule at 40C and an "off" rule at 35C) rather than
- * one rule internally tracking both thresholds.
+ * one rule internally tracking both thresholds. Rules are evaluated in the
+ * order they appear in config['rules'] (the order set in the webGUI via the
+ * Move Up/Down buttons), so a rule that depends on another's side effect
+ * (e.g. two rules targeting the same relay) fires predictably in sequence.
  */
 function htt_run_cycle() {
     $config = htt_load_config();
