@@ -2,15 +2,23 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.02.1">
+<!ENTITY version   "2026.08.02.2">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "6bdef3ba363e5c504eed57fd01a341f4">
+<!ENTITY srcMD5     "48232e5c25c960f20edacf2ed3ec75bf">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger/unraid-disk-event-trigger.page" min="6.9">
 
 <CHANGES>
+###2026.08.02.2
+- Fix: Save &amp; Apply (and every other write action) silently did nothing, because Unraid's webGUI drops any POST missing a csrf_token. Now wired through correctly.
+- Add: show/hide toggle on password fields.
+- Add: "Test MQTT Connection" button that checks broker reachability and auth without publishing anything.
+- Add: rules collapse by default when there's more than one, stay open when there's exactly one; manual toggle overrides.
+- Fix: cramped padding on collapsed rules; labeled the per-rule "Enabled" checkbox.
+- All changes verified live via the Chrome extension against an authenticated Unraid session, not just simulated.
+
 ###2026.08.02.1
 - Fix: .plg install script's heredoc broke XML parsing, causing "XML file doesn't exist or xml parse error" during install.
 - Fix: srcURL used the un-prefixed version for the release tag, causing a 404 on the .txz download during install.
