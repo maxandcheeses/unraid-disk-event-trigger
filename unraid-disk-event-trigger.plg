@@ -2,15 +2,21 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.11">
+<!ENTITY version   "2026.08.03.12">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
-<!ENTITY srcMD5     "f61ebd392d902b5fa83495433f0231ee">
+<!ENTITY srcMD5     "61aee1256aba42605d2a4db6b3ebb104">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.12
+- **BREAKING CONFIG CHANGE**: a rule now fires exactly one direction instead of a paired ON/OFF (on_temp/off_temp, on_topic/off_topic, on_payload/off_payload, on_url/off_url, etc. are all replaced by a single `direction` + `threshold` + action). Hysteresis (e.g. "on at 40&deg;C, off at 35&deg;C") is now achieved by pairing two rules - an ON rule and an OFF rule - rather than one rule tracking both thresholds internally. Existing rules created before this update will need to be recreated as separate ON and OFF rules; sorry for the inconvenience, but the old combined shape didn't extend cleanly to the new trigger types below.
+- Add: **Duplicate** button on each rule, to quickly clone one (e.g. to create the paired opposite-direction rule for hysteresis, or a similar rule for another device).
+- Add: parity check and array/data rebuild are now full trigger types (alongside disk temperature/usage), each with their own ON/OFF rules that fire directly off Unraid's array-operation state - replacing the old "also force ON during parity check/rebuild" checkboxes that only modified temperature rules.
+- Change: the rule state badge now shows "Fired: ON/OFF" or "Idle" instead of a device relay state, matching the single-direction model.
+
 ###2026.08.03.11
 - Change: added dividers and labels in the webhook rule editor clarifying that headers/auth/insecure-cert are shared across ON, OFF, and the state check, and that the state URL/method are only used by "Check Device State" - previously these sat directly below the OFF fields with no visual separation, making them look OFF-specific.
 
