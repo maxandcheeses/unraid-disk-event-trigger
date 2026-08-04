@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.31">
+<!ENTITY version   "2026.08.03.32">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "138ddc5e696691a836b6c9c9ec4db983">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.32
+- Fix: manually toggling a rule's Fired/Idle badge logged only its raw internal rule id ("...for rule id 'a1b2c3d4e5f6'") instead of its name - now logs the rule's name like every other log line already does.
+
 ###2026.08.03.31
 - Change: the Global Settings and Connections **Save &amp; Apply** buttons (and a rule's bottom Save &amp; Apply, alongside its header one) now only show up when there's actually something unsaved, matching how each rule's header button already worked - the settings page no longer shows a permanently-visible Save button next to sections with nothing to save.
 

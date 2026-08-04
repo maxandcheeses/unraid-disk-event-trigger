@@ -90,7 +90,11 @@ switch ($action) {
         if ($newFired) { $state[$id]['fired_at'] = time(); } else { unset($state[$id]['fired_at']); }
         unset($state[$id]['pending_since']);
         htt_save_state($state);
-        htt_log("Fired state manually " . ($newFired ? 'set' : 'cleared') . " for rule id '$id'");
+        $ruleName = $id;
+        foreach (htt_load_config()['rules'] as $r) {
+            if (($r['id'] ?? '') === $id) { $ruleName = $r['name'] ?? $id; break; }
+        }
+        htt_log("Fired state manually " . ($newFired ? 'set' : 'cleared') . " for rule '$ruleName'");
         respond(['ok' => true, 'fired' => $newFired]);
 
     case 'get_status':
