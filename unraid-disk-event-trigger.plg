@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.37">
+<!ENTITY version   "2026.08.03.38">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "281b36ed289a4ae2c6eecf134089b996">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.38
+- Fix: **+ Add Rule** was completely broken - clicking it silently failed to add anything. The MQTT block's Payload field fell back to a leftover reference to the rule-level `direction` variable removed when the Action dropdown was deleted in v2026.08.03.23, throwing a ReferenceError partway through rendering a new rule (which starts with no payload set) and aborting the whole render. Existing rules were unaffected since they already have a payload saved. Payload now defaults to plain "ON" instead.
+
 ###2026.08.03.37
 - Fix: the previous fix (v2026.08.03.36) shrank password fields narrower than every other field, since the icon and its gap were carved out of a fixed-width wrapper. The password input now keeps the same 220px width as other fields, with the icon sitting outside that width entirely. Verified live in the browser against the real deployed page.
 

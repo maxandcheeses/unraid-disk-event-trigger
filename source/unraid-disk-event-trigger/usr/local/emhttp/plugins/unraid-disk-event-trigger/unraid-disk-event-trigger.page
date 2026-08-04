@@ -667,7 +667,7 @@ function httRenderRules() {
                 <div class="row"><label>Password</label>${httPassField('htt-mqtt-pass', (rule.mqtt?.password)||'')}</div>
                 </div>
                 <div class="row"><label>Topic</label><input type="text" class="htt-mqtt-topic" value="${(rule.mqtt?.topic)||''}" placeholder="cmnd/tasmota_xx/POWER  or  zigbee2mqtt/plug/set"></div>
-                <div class="row"><label>Payload</label><input type="text" class="htt-mqtt-payload" value="${(rule.mqtt?.payload)||(direction==='off'?'OFF':'ON')}"></div>
+                <div class="row"><label>Payload</label><input type="text" class="htt-mqtt-payload" value="${(rule.mqtt?.payload)||'ON'}"></div>
                 <div class="row"><label>State topic (optional)</label><input type="text" class="htt-mqtt-statetopic" value="${(rule.mqtt?.state_topic)||''}" placeholder="zigbee2mqtt/plug (device's own state topic, not /set)"></div>
                 <div class="row"><label>Payload is JSON</label><label style="min-width:auto"><input type="checkbox" class="htt-mqtt-statejson" onchange="this.closest('.row').nextElementSibling.style.display=this.checked?'':'none'" ${rule.mqtt?.state_is_json?'checked':''}> parse as JSON, e.g. zigbee2mqtt's {"state":"ON"} (leave unchecked to compare the raw payload directly)</label></div>
                 <div class="row" style="display:${rule.mqtt?.state_is_json?'':'none'}"><label>State JSON key</label><input type="text" class="htt-mqtt-statekey" value="${(rule.mqtt?.state_json_key)||'state'}" placeholder="state"></div>
