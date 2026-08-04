@@ -27,8 +27,8 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 #htt-wrap .row { margin-bottom: 6px; }
 #htt-wrap .disk-list { max-height: 120px; overflow-y: auto; border: 1px solid #555; padding: 6px; width: 300px; }
 #htt-wrap .proto-block { display: none; margin-top: 6px; padding-left: 10px; border-left: 2px solid #666; }
-#htt-wrap .htt-pass-wrap { display: inline-flex; align-items: center; gap: 6px; width: 220px; }
-#htt-wrap .htt-pass-wrap input { flex: 1 1 auto; min-width: 0; }
+#htt-wrap .htt-pass-wrap { display: inline-flex; align-items: center; gap: 6px; }
+#htt-wrap .htt-pass-wrap input { width: 220px; flex-shrink: 0; }
 #htt-wrap .htt-pass-toggle { flex-shrink: 0; width: 18px; height: 18px; margin: 0; background: none; border: none; cursor: pointer; padding: 0; line-height: 1; opacity: 0.6; color: inherit; display: inline-flex; align-items: center; justify-content: center; }
 #htt-wrap .htt-pass-toggle:hover { opacity: 1; color: #000; }
 #htt-wrap .proto-block.active { display: block; }

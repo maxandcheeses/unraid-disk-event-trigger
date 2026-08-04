@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.36">
+<!ENTITY version   "2026.08.03.37">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "881fe865692fbaa5a0ae9d4a6de6ee1f">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.37
+- Fix: the previous fix (v2026.08.03.36) shrank password fields narrower than every other field, since the icon and its gap were carved out of a fixed-width wrapper. The password input now keeps the same 220px width as other fields, with the icon sitting outside that width entirely. Verified live in the browser against the real deployed page.
+
 ###2026.08.03.36
 - Change: the password show/hide icon no longer sits inside the input field at all - it's now laid out as a normal flex sibling after the field (with a small gap), rather than absolutely positioned on top of it, so it can never overlap the field's own text regardless of theme. Verified live in the browser against the real deployed page.
 
