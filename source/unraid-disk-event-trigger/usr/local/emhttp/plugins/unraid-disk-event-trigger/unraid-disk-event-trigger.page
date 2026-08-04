@@ -29,7 +29,7 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 #htt-wrap .proto-block { display: none; margin-top: 6px; padding-left: 10px; border-left: 2px solid #666; }
 #htt-wrap .htt-pass-wrap { display: inline-flex; align-items: center; width: 220px; }
 #htt-wrap .htt-pass-wrap input { width: 100%; flex: 1; }
-#htt-wrap .htt-pass-toggle { margin-left: -26px; background: none; border: none; cursor: pointer; padding: 2px 6px; line-height: 1; font-size: 14px; opacity: 0.7; }
+#htt-wrap .htt-pass-toggle { margin-left: -26px; background: none; border: none; cursor: pointer; padding: 2px 6px; line-height: 1; opacity: 0.7; display: inline-flex; align-items: center; }
 #htt-wrap .htt-pass-toggle:hover { opacity: 1; }
 #htt-wrap .proto-block.active { display: block; }
 #htt-wrap .htt-help { cursor: help; opacity: 0.7; }
@@ -205,9 +205,11 @@ function httPost(body) {
 
 function httUid() { return Math.random().toString(16).slice(2, 10); }
 
+const HTT_EYE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+
 function httPassField(cls, value) {
     const esc = String(value).replace(/"/g, '&quot;');
-    return `<span class="htt-pass-wrap"><input type="password" class="${cls}" value="${esc}"><button type="button" class="htt-pass-toggle" title="Show/hide password" onclick="httTogglePass(this)">&#128065;</button></span>`;
+    return `<span class="htt-pass-wrap"><input type="password" class="${cls}" value="${esc}"><button type="button" class="htt-pass-toggle" title="Show/hide password" onclick="httTogglePass(this)">${HTT_EYE_SVG}</button></span>`;
 }
 
 function httTogglePass(btn) {
