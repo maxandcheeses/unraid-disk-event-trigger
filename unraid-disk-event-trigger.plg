@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-disk-event-trigger">
 <!ENTITY author    "maxandcheeses">
-<!ENTITY version   "2026.08.03.34">
+<!ENTITY version   "2026.08.03.35">
 <!ENTITY pluginURL "https://github.com/maxandcheeses/unraid-disk-event-trigger/raw/main/unraid-disk-event-trigger.plg">
 <!ENTITY srcURL     "https://github.com/maxandcheeses/unraid-disk-event-trigger/releases/download/v&version;/unraid-disk-event-trigger.txz">
 <!ENTITY srcMD5     "acd00fa6418359bfc61f4adb4fcda083">
@@ -11,6 +11,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" launch="Settings/unraid-disk-event-trigger" icon="images/icon.png" min="6.9">
 
 <CHANGES>
+###2026.08.03.35
+- Fix: the previous fix for the password toggle icon (v2026.08.03.34) still overlapped/misaligned on the real Unraid theme - `top:50%; transform:translateY(-50%)` wasn't centering correctly against this theme's input box metrics. Verified live in the browser and switched to `top:0;bottom:0;margin:auto` with an explicit fixed icon size, which centers reliably regardless of the surrounding theme's button/input sizing.
+
 ###2026.08.03.34
 - Fix: the password show/hide toggle button overlapped the input's own text (the negative-margin layout was tuned for the old single-character emoji, not the wider SVG icon) - the icon is now absolutely positioned inside the field with the input's own padding reserving space for it, so they never overlap. Also fixed the icon going white/invisible on hover; it's now dark on hover, matching the rest of the plugin's icon buttons.
 

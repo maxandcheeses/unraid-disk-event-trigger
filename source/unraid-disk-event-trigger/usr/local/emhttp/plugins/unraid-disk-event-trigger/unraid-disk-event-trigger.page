@@ -29,7 +29,7 @@ if (!isset($var)) $var = @parse_ini_file('/usr/local/emhttp/state/var.ini');
 #htt-wrap .proto-block { display: none; margin-top: 6px; padding-left: 10px; border-left: 2px solid #666; }
 #htt-wrap .htt-pass-wrap { position: relative; display: inline-block; width: 220px; }
 #htt-wrap .htt-pass-wrap input { width: 100%; box-sizing: border-box; padding-right: 28px; }
-#htt-wrap .htt-pass-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; padding: 2px; line-height: 1; opacity: 0.6; color: inherit; display: inline-flex; align-items: center; }
+#htt-wrap .htt-pass-toggle { position: absolute; right: 6px; top: 0; bottom: 0; margin: auto 0; height: 18px; width: 18px; background: none; border: none; cursor: pointer; padding: 0; line-height: 1; opacity: 0.6; color: inherit; display: inline-flex; align-items: center; justify-content: center; }
 #htt-wrap .htt-pass-toggle:hover { opacity: 1; color: #000; }
 #htt-wrap .proto-block.active { display: block; }
 #htt-wrap .htt-help { cursor: help; opacity: 0.7; }
